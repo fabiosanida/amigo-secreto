@@ -4,6 +4,8 @@ Aplicação publicada em https://amigosecreto.sanida.me.
 
 Cadastro com nome, sobrenome e e-mail; acesso sem senha por código ou link de uso único; foto com recorte; grupos e convites por e-mail; acompanhamento de entrega, abertura estimada e aceite; sorteio em um único ciclo com no mínimo três participantes confirmados. Cada pessoa acessa apenas seu resultado. O sorteio é definitivo e não inclui convites pendentes.
 
+A criação de grupo usa um calendário próprio, com navegação por teclado e bloqueio de datas passadas. O valor do presente é um campo textual com decimal pt-BR, sem controles de incremento, e deve ficar entre R$ 1,00 e R$ 100.000,00; o mesmo mínimo é validado pela API e pelo banco.
+
 ## Executar
 
 Requer Node.js 24. Configure `.env.local` a partir de `.env.example` com as credenciais do ambiente. Nunca versione os segredos. `DATABASE_URL` usa pool de conexões; `DATABASE_URL_UNPOOLED` é usada nas migrações. `AUTH_SECRET` e `CRON_SECRET` devem ser aleatórios e ter pelo menos 32 caracteres.
@@ -21,6 +23,7 @@ A aplicação local fica em `http://127.0.0.1:4174`. Os layouts de revisão est�
 
 - `prototype/live.js`: aplicação de produção, navegação e chamadas à API.
 - `prototype/auth.js`, `groups.js`, `profile.js`: telas e recorte de foto.
+- `prototype/group-fields.js` e `group-fields.css`: calendário acessível e entrada de orçamento.
 - `api/index.js`: API Node.js na Vercel.
 - `lib/`: autenticação, Postgres, grupos, perfis e e-mails HTML.
 - `migrations/`: migrações versionadas, aplicadas com bloqueio e verificação de hash.

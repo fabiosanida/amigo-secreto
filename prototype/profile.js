@@ -37,8 +37,8 @@ function loadImage(source) {
   });
 }
 
-function toBlob(canvas, quality) {
-  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Não foi possível preparar a foto. Tente outra imagem.')), 'image/webp', quality));
+function toBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Não foi possível preparar a foto. Tente outra imagem.')), type, quality));
 }
 
 function blobToDataURL(blob) {
@@ -50,7 +50,7 @@ function blobToDataURL(blob) {
   });
 }
 
-async function encodeCrop(image, frameSize, zoom, position) {
+export async function encodeCrop(image, frameSize, zoom, position) {
   const scale = Math.max(frameSize / image.naturalWidth, frameSize / image.naturalHeight) * zoom;
   const sourceSize = frameSize / scale;
   const sourceX = (image.naturalWidth - sourceSize) / 2 - position.x / scale;
@@ -62,10 +62,28 @@ async function encodeCrop(image, frameSize, zoom, position) {
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = 'high';
   context.drawImage(image, Math.max(0, sourceX), Math.max(0, sourceY), sourceSize, sourceSize, 0, 0, 256, 256);
-  let blob = await toBlob(canvas, .8);
-  if (blob.size > MAX_AVATAR_BYTES) blob = await toBlob(canvas, .65);
+  // Safari may return PNG when WebP encoding is unavailable. The server accepts
+  // all three image formats and normalizes the saved avatar to WebP.
+  let blob = await toBlob(canvas, 'image/webp', .8).catch(() => null);
+  if (!blob?.size || !ACCEPTED_TYPES.has(blob.type)) blob = await toBlob(canvas, 'image/png');
+  if (blob.size > MAX_AVATAR_BYTES && ['image/webp', 'image/jpeg'].includes(blob.type)) {
+    blob = await toBlob(canvas, blob.type, .65);
+  }
+  if (blob.size > MAX_AVATAR_BYTES) {
+    // PNG has no quality setting. Flatten transparency onto white before using
+    // JPEG, which otherwise commonly turns transparent image areas black.
+    const opaqueCanvas = document.createElement('canvas');
+    opaqueCanvas.width = 256; opaqueCanvas.height = 256;
+    const opaqueContext = opaqueCanvas.getContext('2d');
+    if (!opaqueContext) throw new Error('Não foi possível preparar a foto. Tente novamente.');
+    opaqueContext.fillStyle = '#ffffff';
+    opaqueContext.fillRect(0, 0, 256, 256);
+    opaqueContext.drawImage(canvas, 0, 0);
+    blob = await toBlob(opaqueCanvas, 'image/jpeg', .8);
+    if (blob.size > MAX_AVATAR_BYTES) blob = await toBlob(opaqueCanvas, 'image/jpeg', .65);
+  }
+  if (!blob.size || !ACCEPTED_TYPES.has(blob.type)) throw new Error('Não foi possível preparar a foto. Escolha outra imagem.');
   if (blob.size > MAX_AVATAR_BYTES) throw new Error('Não foi possível reduzir essa foto. Escolha outra imagem.');
-  if (blob.type !== 'image/webp') throw new Error('Este navegador não suporta o formato da foto. Use uma versão atual do navegador.');
   return blobToDataURL(blob);
 }
 

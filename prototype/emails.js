@@ -49,7 +49,7 @@ function verifyEmail(user) {
 function inviteEmail(user, group) {
   const date = new Date(`${group.date}T12:00:00`);
   const dateLabel = Number.isNaN(date.getTime()) ? '24 de dezembro' : date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' });
-  const budget = Number(group.budget || 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+  const budget = Number(group.budget || 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return {
     subject: `Ana convidou você para ${group.name}.`,
     body: `<div class="email-illustration">${giftDrawing()}</div>

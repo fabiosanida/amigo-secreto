@@ -1,3 +1,6 @@
+import { setupInviteFields } from './invite-fields.js';
+import { setupGroupFields, parseBudget } from './group-fields.js';
+import { setupOTP } from './otp.js';
 import { icon, brand, avatar, escapeHtml } from './ui.js';
 import { renderAuth, AUTH_ROUTES } from './auth.js';
 import { renderGroups, GROUP_ROUTES } from './groups.js';
@@ -57,7 +60,9 @@ function render() {
  renderToolbar();
  window.scrollTo({top:0,behavior:'instant'});
  document.querySelectorAll('form').forEach(form=>form.addEventListener('submit',handleSubmit));
- document.querySelectorAll('input[name="code"]').forEach(input=>input.addEventListener('input',()=>{input.value=input.value.replace(/\D/g,'').slice(0,6);}));
+ setupOTP(document.querySelector('#app'));
+ setupInviteFields(document.querySelector('#app'));
+ setupGroupFields(document.querySelector('#app'));
  updateCountdown();
 }
 
@@ -120,9 +125,9 @@ function handleSubmit(event) {
    navigate(state.inviteContext?'invitation':'account-ready');break;
  case 'create-group': {
    const date=value('date');
-   if(date&&date<'2026-11-10') {formError(form,'Escolha uma data a partir de 10 de novembro de 2026.');return;}
-   const budget=Number(value('budget').replace(',','.'));
-   if(!Number.isFinite(budget)||budget<0) {formError(form,'Informe um valor de presente válido.');return;}
+   if(!date||date<new Intl.DateTimeFormat('en-CA',{timeZone:'America/Maceio'}).format(new Date())) {formError(form,'Escolha uma data válida a partir de hoje.');return;}
+   const budget=parseBudget(value('budget'));
+   if(!Number.isFinite(budget)||budget<1) {formError(form,'Informe um valor de presente a partir de R$ 1,00.');return;}
    state.group={name:value('name'),date,budget,location:value('location'),description:value('description')};
    if(!state.editing) {
      state.participants=[{name:state.user.firstName+' '+state.user.lastName,email:state.user.email,status:'accepted',color:0}];
@@ -132,8 +137,9 @@ function handleSubmit(event) {
    navigate(state.editing?'group':'invite');state.editing=false;toast('Grupo salvo na prévia.');break;
  }
  case 'invite': {
-   const emails=[...new Set(value('emails').split(/[\s,;]+/).filter(Boolean).map(item=>item.toLowerCase()))];
-   if(!emails.length) {formError(form,'Adicione pelo menos um e-mail.');return;}
+   const entries=data.getAll('emails').map(item=>String(item).trim().toLowerCase());
+   if(!entries.length||entries.length>50||entries.some(email=>!email)) {formError(form,'Preencha de 1 a 50 campos de e-mail antes de enviar.');return;}
+   const emails=[...new Set(entries)];
    const invalid=emails.filter(email=>! /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
    if(invalid.length) {formError(form,`Confira estes endereços: ${invalid.join(', ')}.`);return;}
    const newEmails=emails.filter(email=>!state.participants.some(person=>person.email===email));

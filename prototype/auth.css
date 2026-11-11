@@ -71,3 +71,12 @@
 .auth-form .auth-code-input:focus{border-color:#79926C!important;box-shadow:0 0 0 3px #79926C1A}
 .auth-form .auth-code-input.has-error{border-color:#B6654C!important;box-shadow:0 0 0 3px #B6654C0D}
 @media(max-width:600px){.auth-welcome-copy>.eyebrow{font-size:12px!important;letter-spacing:.45px;white-space:normal;gap:7px}.auth-header-right>.btn-ghost{font-size:13px;min-height:39px;padding:9px 15px}.auth-welcome .auth-footer,.auth-footer{padding-top:12px;padding-bottom:12px}.auth-footer>.auth-help-button{font-size:12px;min-height:37px}.auth-welcome-visual{max-height:260px}}
+
+/* Six independent fields keep the code readable on narrow screens. */
+.auth-form .auth-otp-field{min-width:0;width:100%;border:0;padding:0;margin:0}
+.auth-otp-field legend{display:block;width:100%;padding:0;margin:0 0 11px;font-size:13px;line-height:1.5;font-weight:500;color:var(--ink)}
+.auth-otp-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;width:100%;min-width:0}
+.auth-form .auth-otp-input{display:block;box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:60px;min-height:52px;padding:8px 0;border:1px solid #CAD2C3;border-radius:9px;background:#FFF;color:var(--ink);font-family:var(--sans);font-size:28px;font-weight:500;line-height:1;text-align:center;letter-spacing:0;font-variant-numeric:tabular-nums;caret-color:var(--ink);appearance:none;outline:0;box-shadow:none;transition:border-color .15s,box-shadow .15s}
+.auth-form .auth-otp-input.has-error{border-color:#B6654C;box-shadow:0 0 0 2px #B6654C0D}
+.auth-form .auth-otp-input:focus,.auth-form .auth-otp-input:focus-visible{border-color:#587C4B;box-shadow:0 0 0 3px #79926C24;outline:0}
+@media(max-width:360px){.auth-form .auth-otp-input{height:52px;font-size:24px;border-radius:8px}.auth-otp-field legend{font-size:12px}}

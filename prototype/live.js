@@ -1,3 +1,6 @@
+import { setupInviteFields, setInviteFieldsBusy } from './invite-fields.js';
+import { setupGroupFields, parseBudget } from './group-fields.js';
+import { setupOTP } from './otp.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from './ui.js';
 import { renderAuth, AUTH_ROUTES } from './auth.js';
 import { renderGroups, GROUP_ROUTES } from './groups.js';
@@ -90,7 +93,9 @@ function render() {
   });
   setupPhotoInputs(document);
   document.querySelectorAll('#app form[data-form]').forEach(form => form.addEventListener('submit', submit));
-  document.querySelectorAll('input[name="code"]').forEach(input => input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 6); }));
+  setupOTP(document.querySelector('#app'));
+  setupInviteFields(document.querySelector('#app'));
+  setupGroupFields(document.querySelector('#app'));
   if (['register', 'login'].includes(route)) {
     const user = currentUser();
     for (const name of ['firstName', 'lastName', 'email']) { const input = document.querySelector(`form [name="${name}"]`); if (input && user[name]) input.value = user[name]; }
@@ -226,6 +231,7 @@ function formError(form, message) {
 function lockForm(form, locked) {
   form.setAttribute('aria-busy', String(locked));
   form.querySelectorAll('button[type="submit"]').forEach(button => { button.disabled = locked; });
+  setInviteFieldsBusy(form, locked);
 }
 async function completeLogin(user, fromLink = false) {
   if (!user?.id) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar sua conta. Tente entrar novamente.');
@@ -233,7 +239,6 @@ async function completeLogin(user, fromLink = false) {
   if (state.inviteToken) await navigate('invitation', { token: state.inviteToken, replace: fromLink });
   else { const destination = state.returnTo || (state.authMode === 'register' ? 'account-ready' : 'dashboard'); state.returnTo = ''; await navigate(destination, { replace: fromLink }); }
 }
-function emailList(value) { return [...new Set(value.split(/[\s,;]+/).map(email => email.trim().toLowerCase()).filter(Boolean))]; }
 function failureCount(value) { return Array.isArray(value) ? value.length : Number(value) || 0; }
 function responseEmails(value) { return Array.isArray(value) ? value.map(item => typeof item === 'string' ? item : item.email).filter(Boolean) : []; }
 async function submit(event) {
@@ -259,14 +264,15 @@ async function submit(event) {
       const result = await post('/auth/verify', { challengeId: state.challenge.challengeId, code: value('code') });
       await completeLogin(result.user);
     } else if (type === 'create-group') {
-      const payload = { name: value('name'), date: value('date'), budget: Number(value('budget')), location: value('location'), description: value('description') };
+      const payload = { name: value('name'), date: value('date'), budget: parseBudget(value('budget')), location: value('location'), description: value('description') };
       if (!payload.name || !payload.date || !Number.isFinite(payload.budget) || payload.budget < 1) throw new ApiError('INVALID_GROUP', 'Confira o nome, a data e o valor do presente.');
       const result = await post('/groups', payload);
       state.group = result.group || result;
       await navigate('invite', { id: state.group.id }); toast('Seu grupo está pronto. Agora é hora de reunir a turma.');
     } else if (type === 'invite') {
-      const emails = emailList(value('emails'));
-      if (!emails.length || emails.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new ApiError('INVALID_EMAIL', 'Confira os e-mails informados antes de enviar.');
+      const entries = data.getAll('emails').map(email => String(email).trim().toLowerCase());
+      if (!entries.length || entries.length > 50 || entries.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new ApiError('INVALID_EMAIL', 'Preencha um e-mail válido em cada campo. Envie de 1 a 50 e-mails por vez.');
+      const emails = [...new Set(entries)];
       const result = await post(`/groups/${segment(state.group.id)}/invites`, { emails });
       const failures = responseEmails(result.failed);
       state.inviteQueued = responseEmails(result.queued);

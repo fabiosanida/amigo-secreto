@@ -128,7 +128,8 @@ test('profile and group validation reject malformed values before persistence', 
   const future = new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10);
   const group = { name: 'Natal', date: future, budget: 100.125 };
   assert.equal(validateGroup(group).budget, 100.13);
-  for (const budget of [true, [], {}, '', null, -1, 100001, Infinity]) assert.throws(() => validateGroup({ ...group, budget }), { code: 'INVALID_BUDGET' });
+  for (const budget of [true, [], {}, '', null, -1, 0, '0', 0.99, 100001, Infinity]) assert.throws(() => validateGroup({ ...group, budget }), { code: 'INVALID_BUDGET' });
+  assert.equal(validateGroup({ ...group, budget: 1 }).budget, 1);
   assert.throws(() => validateGroup({ ...group, date: '2099-02-30' }), { code: 'INVALID_DATE' });
 });
 test('avatars are decoded and re-encoded to a bounded WebP, never accepted as arbitrary data URLs', async () => {
