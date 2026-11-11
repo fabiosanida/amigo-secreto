@@ -2,7 +2,7 @@
 
 Aplicação publicada em https://amigosecreto.sanida.me.
 
-Cadastro com nome, sobrenome e e-mail; acesso sem senha por código ou link de uso único; foto com recorte; grupos e convites por e-mail; acompanhamento de entrega, abertura estimada e aceite; sorteio em um único ciclo com no mínimo três participantes confirmados. Cada pessoa acessa apenas seu resultado. O sorteio é definitivo e não inclui convites pendentes.
+Cadastro com nome, sobrenome, e-mail e senha; acesso por e-mail e senha; foto com recorte; grupos e convites por e-mail; acompanhamento de entrega, abertura estimada e aceite; sorteio em um único ciclo com no mínimo três participantes confirmados. Cada pessoa acessa apenas seu resultado. O sorteio é definitivo e não inclui convites pendentes.
 
 A criação de grupo usa um calendário próprio, com navegação por teclado e bloqueio de datas passadas. O valor do presente é um campo textual com decimal pt-BR, sem controles de incremento, e deve ficar entre R$ 1,00 e R$ 100.000,00; o mesmo mínimo é validado pela API e pelo banco.
 
@@ -29,7 +29,9 @@ A aplicação local fica em `http://127.0.0.1:4174`. Os layouts de revisão est�
 - `migrations/`: migrações versionadas, aplicadas com bloqueio e verificação de hash.
 - `scripts/build.mjs`: gera somente os arquivos públicos em `public/`.
 
-Sessões usam cookies HttpOnly/Secure em produção e tokens armazenados como hash. Códigos expiram em 10 minutos, aceitam no máximo cinco tentativas e têm limites de envio. Fotos são reprocessadas no servidor. Aceite e sorteio bloqueiam o mesmo grupo em transação; o resultado não muda em uma repetição da requisição.
+Sessões usam cookies HttpOnly/Secure em produção e tokens armazenados como hash. Senhas têm entre 12 e 128 caracteres e são armazenadas com scrypt e salt individual. Códigos de cadastro e recuperação expiram em 10 minutos, aceitam no máximo cinco tentativas e têm limites de envio. A recuperação emite uma autorização temporária de uso único para definir a senha; ao concluir, as sessões anteriores são encerradas. Contas anteriores à adoção de senhas usam “Recuperar senha” para definir a primeira senha. Fotos são reprocessadas no servidor. Aceite e sorteio bloqueiam o mesmo grupo em transação; o resultado não muda em uma repetição da requisição.
+
+Um convite válido comprova apenas o e-mail destinatário: um novo cadastro com esse mesmo endereço dispensa outro código de confirmação. Cadastros com outro e-mail continuam exigindo confirmação, e contas existentes exigem login. O convite permanece durante cadastro, login, recuperação e troca de conta. Aceitar é uma ação explícita: uma pessoa logada só pode confirmar a própria participação se tiver convite ativo para aquele grupo.
 
 O serviço Notifications recebe `POST /api/v1/emails` e expõe `GET /api/v1/emails/:id`. A outbox mantém idempotência, registra falhas e retoma envios via cron protegido a cada cinco minutos. Aberturas de e-mail são estimativas: bloqueio de imagens e mecanismos de privacidade podem interferir. WhatsApp aguarda a integração fornecida pelo responsável pelo projeto.
 
@@ -37,7 +39,7 @@ O serviço Notifications recebe `POST /api/v1/emails` e expõe `GET /api/v1/emai
 
 ```sh
 npm test
-RUN_DB_TESTS=1 node --env-file=.env.local --test tests/integration.test.mjs
+RUN_DB_TESTS=1 node --env-file=.env.local --test tests/integration.test.mjs tests/password-integration.test.mjs
 ```
 
 A integração usa o banco configurado, cria dados temporários identificados e os remove ao concluir. Os envios são interceptados pelo teste: nenhuma mensagem é enviada a endereços fictícios. A suíte cobre código de uso único, expiração, concorrência, autorização, aceite, sorteio, privacidade do resultado e repetição idempotente de notificações.

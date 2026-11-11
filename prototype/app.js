@@ -27,13 +27,13 @@ const makeState = () => ({
   inviteContext:false,drawn:false,revealed:false,customGroup:false,
   inviteEmails:['marina@exemplo.com','rafael@exemplo.com','julia@exemplo.com'],
   match:{name:'Ana Oliveira',email:'ana@exemplo.com'},
-  verified:false,newAccount:false,editing:false,resendAt:0,
+  verified:false,authMode:'login',newAccount:false,editing:false,resendAt:0,
 });
 let state = makeState();
 let route = location.hash.slice(1) || 'welcome';
 let drawTimer, toastTimer;
 const sections = [
-  {title:'01 · Boas-vindas e acesso',items:[['welcome','Página de entrada'],['register','Criar conta'],['login','Entrar com e-mail'],['verify','Validar código'],['verify-error','Código incorreto'],['verify-expired','Código expirado'],['account-ready','Conta validada']]},
+  {title:'01 · Boas-vindas e acesso',items:[['welcome','Página de entrada'],['register','Criar conta'],['login','Entrar com senha'],['recover-password','Recuperar senha'],['reset-password','Nova senha'],['password-ready','Senha atualizada'],['verify','Validar código'],['verify-error','Código incorreto'],['verify-expired','Código expirado'],['account-ready','Conta validada']]},
   {title:'02 · Grupos e convites',items:[['dashboard','Meus grupos'],['dashboard-empty','Nenhum grupo ainda'],['create-group','Criar amigo secreto'],['group','Acompanhar participantes'],['invite','Convidar pessoas'],['invites-sent','Convites enviados']]},
   {title:'03 · Quem recebe o convite',items:[['invitation','Convite · já tenho conta'],['invitation-new','Convite · nova conta'],['invitation-accepted','Participação confirmada'],['invitation-expired','Convite indisponível'],['invitation-closed','Sorteio já realizado']]},
   {title:'04 · A hora da surpresa',items:[['draw-confirm','Confirmar sorteio'],['draw-running','Sorteio em andamento'],['drawn','Sorteio concluído'],['reveal','Revelar meu amigo']]},
@@ -63,6 +63,14 @@ function render() {
  setupOTP(document.querySelector('#app'));
  setupInviteFields(document.querySelector('#app'));
  setupGroupFields(document.querySelector('#app'));
+ const registration=document.querySelector('form[data-form="register"]');
+ if(registration) {
+  const email=registration.elements.email;
+  if(state.inviteContext&&state.invitation?.recipientEmail) email.value=state.invitation.recipientEmail;
+  const update=()=>{const verified=state.inviteContext&&state.invitation?.emailVerified&&email.value.trim().toLowerCase()===state.invitation.recipientEmail;registration.querySelector('[data-email-feedback]').innerHTML=verified?`<span class="auth-email-verified">${icon('check-circle',15)} E-mail já validado pelo convite</span>`:'';registration.querySelector('[data-register-note]').textContent=verified?'O convite já confirmou seu e-mail. Basta concluir o cadastro com sua senha.':'Vamos enviar um código para confirmar que esse e-mail é seu.';};
+  email.addEventListener('input',update);update();
+ }
+
  updateCountdown();
 }
 
@@ -113,14 +121,23 @@ function handleSubmit(event) {
  const value=key=>String(data.get(key)||'').trim();
  switch(form.dataset.form) {
  case 'register':
+   if(value('password').length<12||value('password')!==value('passwordConfirm')) {formError(form,'Use pelo menos 12 caracteres e confirme a mesma senha.');return;}
+   state.authMode='register';
    if(!value('firstName')||!value('lastName')) {formError(form,'Preencha seu nome e sobrenome para continuar.');return;}
    state.user={firstName:value('firstName'),lastName:value('lastName'),email:value('email').toLowerCase()};
    state.newAccount=true;
+   if(state.inviteContext&&state.invitation?.recipientEmail===state.user.email) {state.verified=true;navigate('invitation');break;}
    state.resendAt=Date.now()+30000; navigate('verify'); break;
  case 'login':
-   state.user.email=value('email').toLowerCase(); state.newAccount=false; state.resendAt=Date.now()+30000; navigate('verify'); break;
+   state.user.email=value('email').toLowerCase(); state.newAccount=false;state.verified=true;state.authMode='login';navigate(state.inviteContext?'invitation':'dashboard');break;
+ case 'recover-password':
+   state.user.email=value('email').toLowerCase();state.authMode='recover';state.resendAt=Date.now()+30000;navigate('verify');break;
+ case 'reset-password':
+   if(value('password').length<12||value('password')!==value('passwordConfirm')) {formError(form,'Use pelo menos 12 caracteres e confirme a mesma senha.');return;}
+   state.verified=false;navigate('password-ready');break;
  case 'verify':
    if(value('code')!=='123456') {navigate('verify-error');return;}
+   if(state.authMode==='recover') {navigate('reset-password');break;}
    state.verified=true;
    navigate(state.inviteContext?'invitation':'account-ready');break;
  case 'create-group': {
@@ -209,8 +226,10 @@ document.addEventListener('click',event=>{
  case 'logout':state.verified=false;navigate('welcome');break;
  case 'notifications':navigate(state.drawn?'email-result':'email-invite');break;
  case 'verify-email-link':state.verified=true;navigate(state.inviteContext?'invitation':'account-ready');break;
- case 'register-invited':state.inviteContext=true;navigate('register');break;
+ case 'register-invited':state.inviteContext=true;state.invitation={recipientEmail:state.user.email,emailVerified:true};navigate('register');break;
  case 'login-invited':state.inviteContext=true;navigate('login');break;
+ case 'switch-account':state.verified=false;navigate('invitation-new');break;
+ case 'toggle-password': {const input=document.getElementById(target.dataset.passwordTarget);if(input){const show=input.type==='password';input.type=show?'text':'password';target.textContent=show?'Ocultar':'Mostrar';target.setAttribute('aria-pressed',String(show));target.setAttribute('aria-label',`${show?'Ocultar':'Mostrar'} senha`);}break;}
  case 'resend-code':
    if(Date.now()<state.resendAt) return;
    state.resendAt=Date.now()+30000;navigate('verify');toast('Novo código simulado. Use 123456 para continuar.');break;

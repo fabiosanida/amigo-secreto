@@ -9,6 +9,7 @@ import { flushOutbox, syncDeliveryReceipts } from '../lib/groups.js';
 test('real Neon API: verified identity, roster permissions, atomic draw and durable notification retry', { skip: process.env.RUN_DB_TESTS !== '1', timeout: 240000 }, async t => {
   assert(process.env.DATABASE_URL && process.env.AUTH_SECRET && process.env.NOTIFICATIONS_API_URL, 'Configure the isolated integration environment.');
   const fixture = `integration-${randomUUID()}`;
+  const password = 'Fixture password for integration 2026';
   const emails = Array.from({ length: 7 }, (_, i) => `${fixture}-${i}@example.test`);
   const createdUsers = [], groups = [], captured = [], providerKeys = new Map();
   const providerReceipts = new Map(), receiptRequests = [];
@@ -48,7 +49,7 @@ test('real Neon API: verified identity, roster permissions, atomic draw and dura
   const codeOf = message => message.text.match(/código de acesso é (\d{6})/u)?.[1];
   const tokenOf = (message, kind = 'invitation') => message.text.match(new RegExp(`#${kind}\\?token=([A-Za-z0-9_-]{43})`))?.[1];
   const signUp = async (index, magic = false) => {
-    const requested = await api('auth/request', { method: 'POST', body: { email: emails[index], firstName: `Fixture${index}`, lastName: fixture } });
+    const requested = await api('auth/register', { method: 'POST', body: { email: emails[index], firstName: `Fixture${index}`, lastName: fixture, password, passwordConfirm: password } });
     assert.equal(requested.status, 200);
     const message = lastEmail(emails[index]);
     assert(codeOf(message));
@@ -69,18 +70,19 @@ test('real Neon API: verified identity, roster permissions, atomic draw and dura
       assert.equal((await api('auth/verify', { method: 'POST', body: { challengeId: owner.challengeId, code: owner.code } })).status, 401);
       assert.equal((await api('session', { cookie: owner.cookie })).data.user.id, owner.id);
       assert.equal((await api('session')).data.user, null);
-      const pending = await api('auth/request', { method: 'POST', body: { email: emails[4], firstName: 'Pending', lastName: fixture } });
+      const pending = await api('auth/register', { method: 'POST', body: { email: emails[4], firstName: 'Pending', lastName: fixture, password, passwordConfirm: password } });
       const correct = codeOf(lastEmail(emails[4])), wrong = correct === '000000' ? '000001' : '000000';
       for (let i = 0; i < 5; i++) assert.equal((await api('auth/verify', { method: 'POST', body: { challengeId: pending.data.challengeId, code: wrong } })).data.error.code, 'INVALID_CODE');
       assert.equal((await api('auth/verify', { method: 'POST', body: { challengeId: pending.data.challengeId, code: correct } })).status, 401);
       assert.equal(Number((await query('SELECT attempts FROM as_auth_challenges WHERE id=$1', [pending.data.challengeId])).rows[0].attempts), 5);
-      const expired = await api('auth/request', { method: 'POST', body: { email: emails[5], firstName: 'Expired', lastName: fixture } });
+      const expired = await api('auth/register', { method: 'POST', body: { email: emails[5], firstName: 'Expired', lastName: fixture, password, passwordConfirm: password } });
       await query("UPDATE as_auth_challenges SET expires_at=now()-interval '1 second' WHERE id=$1", [expired.data.challengeId]);
       assert.equal((await api('auth/verify', { method: 'POST', body: { challengeId: expired.data.challengeId, code: codeOf(lastEmail(emails[5])) } })).data.error.code, 'EXPIRED_CODE');
-      assert.equal((await api('auth/request', { method: 'POST', body: { email: emails[5] } })).status, 429);
+      assert.equal((await api('auth/request', { method: 'POST', body: { email: emails[5], challengeId: expired.data.challengeId } })).status, 429);
+      const sendsBeforeUnknown = captured.length;
       const unknown = await api('auth/request', { method: 'POST', body: { email: emails[6] } });
-      assert.equal(unknown.status, 200);
-      assert.equal((await api('auth/verify', { method: 'POST', body: { challengeId: unknown.data.challengeId, code: codeOf(lastEmail(emails[6])) } })).data.error.code, 'ACCOUNT_NOT_FOUND');
+      assert(unknown.status >= 400, 'Resending requires a pending signup challenge, not an arbitrary mailbox');
+      assert.equal(captured.length, sendsBeforeUnknown);
       assert.equal(Number((await query('SELECT count(*) FROM as_users WHERE email=$1', [emails[6]])).rows[0].count), 0);
     });
     const future = new Date(Date.now() + 86400000 * 40).toISOString().slice(0, 10);
@@ -112,8 +114,8 @@ test('real Neon API: verified identity, roster permissions, atomic draw and dura
       tokens = [member, third, outsider].map(person => tokenOf(lastEmail(person.email)));
       assert(tokens.every(Boolean));
       const invitation = await api(`invitations/${tokens[0]}`);
-      assert.equal(invitation.data.group.id, groupId); assert(!JSON.stringify(invitation.data).includes(member.email));
-      assert.equal((await api(`invitations/${tokens[0]}/accept`, { method: 'POST', cookie: outsider.cookie, body: {} })).data.error.code, 'EMAIL_MISMATCH');
+      assert.equal(invitation.data.group.id, groupId); assert.equal(invitation.data.recipientEmail, member.email);
+      assert.equal((await api(`invitations/${tokens[0]}` , { cookie: outsider.cookie })).data.currentUserInvited, true, 'Another invited account can accept its own membership from this group link');
       const pixel = lastEmail(member.email).html.match(/\/api\/track\/open\/([A-Za-z0-9_-]{43})/)[1];
       const tracked = await originalFetch(`${origin}/api/track/open/${pixel}`); assert.equal(tracked.headers.get('content-type'), 'image/png'); await tracked.arrayBuffer();
       assert.equal((await api(`groups/${groupId}`, { cookie: owner.cookie })).data.participants.find(p => p.email === member.email).status, 'opened');
@@ -194,8 +196,8 @@ test('real Neon API: verified identity, roster permissions, atomic draw and dura
     if (originalUrl === undefined) delete process.env.APP_URL; else process.env.APP_URL = originalUrl;
     if (originalVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = originalVercel;
     const rateKeys = [];
-    for (const scope of ['auth-request-ip', 'auth-verify-ip', 'public-invitations']) rateKeys.push([scope, fixture]);
-    for (const email of emails) for (const scope of ['auth-request-email', 'auth-cooldown']) rateKeys.push([scope, email]);
+    for (const scope of ['auth-request-ip', 'auth-signup-ip', 'auth-verify-ip', 'public-invitations']) rateKeys.push([scope, fixture]);
+    for (const email of emails) for (const scope of ['auth-request-email', 'auth-cooldown', 'auth-signup-email', 'auth-signup-cooldown']) rateKeys.push([scope, email]);
     for (const id of createdUsers) for (const scope of ['create-group', 'invite-people', 'draw-group', 'retry-notifications', 'resend-invite-user', 'profile']) rateKeys.push([scope, id]);
     await transaction(async client => {
       if (groups.length) { await client.query('DELETE FROM as_draw_results WHERE group_id=ANY($1::uuid[])', [groups]); await client.query('DELETE FROM as_groups WHERE id=ANY($1::uuid[])', [groups]); }

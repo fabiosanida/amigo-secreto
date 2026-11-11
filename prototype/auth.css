@@ -80,3 +80,24 @@
 .auth-form .auth-otp-input.has-error{border-color:#B6654C;box-shadow:0 0 0 2px #B6654C0D}
 .auth-form .auth-otp-input:focus,.auth-form .auth-otp-input:focus-visible{border-color:#587C4B;box-shadow:0 0 0 3px #79926C24;outline:0}
 @media(max-width:360px){.auth-form .auth-otp-input{height:52px;font-size:24px;border-radius:8px}.auth-otp-field legend{font-size:12px}}
+
+/* Password access and invitation ownership remain clear on every screen. */
+.auth-password-field{display:flex;flex-direction:column;gap:9px}
+.auth-password-control{position:relative;display:flex;align-items:center}
+.auth-form .auth-password-control input{width:100%;padding-right:83px}
+.auth-password-control button{position:absolute;right:8px;min-height:35px;padding:7px 10px;border:1px solid #D6DFD0;border-radius:6px;background:#F2F5EB;color:#365A45;font:600 12px var(--sans);cursor:pointer}
+.auth-password-control button:hover{background:#E7EDE2;box-shadow:0 0 0 3px #79926C16}
+.auth-password-control button:focus-visible{outline:2px solid #587C4B;outline-offset:2px}
+.auth-email-feedback:empty{display:none}
+.auth-email-feedback{font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.auth-email-verified{display:inline-flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid #86EFAC;border-radius:8px;background:#DCFCE7;color:#166534;font-size:12px;font-weight:600}
+.auth-email-existing{padding:15px;border:1px solid #D8E1CF;border-radius:10px;background:#F2F5EB;color:#365A45}
+.auth-email-existing p{margin:0 0 12px}.auth-email-existing .btn{font-size:12px;padding:9px 12px;min-height:38px}
+.auth-email-actions{display:flex;flex-wrap:wrap;gap:8px}.auth-email-other{margin-top:12px}
+.auth-email-checking{color:#637365}
+.auth-recovery-link{align-self:center;margin-top:8px}
+.invitation-auth-actions{display:grid;grid-template-columns:1fr;gap:12px}.invitation-auth-actions .btn{width:100%}
+.invitation-switch-account{margin-top:12px}
+.invitation-confirm-question{font-size:14px;line-height:1.6;color:var(--ink);margin:0 0 16px}
+.invitation-current-account p{min-width:0;overflow-wrap:anywhere}
+@media(max-width:600px){.auth-form .auth-password-control input{font-size:16px}.auth-password-field{gap:8px}.auth-email-actions .btn{flex:1}.auth-email-feedback{font-size:13px}}

@@ -22,7 +22,7 @@ const state = {
   invitation: null, inviteToken: storage.get(INVITE_KEY) || '',
   inviteContext: Boolean(storage.get(INVITE_KEY)), inviteEmails: [], inviteQueued: [],
   invitationError: '', invitationErrorCode: '', returnTo: '', challenge: storedChallenge, pendingUser: null,
-  authMode: 'login', resendAt: Number(storedChallenge?.resendAt) || 0, requestPayload: null,
+  authMode: storedChallenge?.purpose === 'recover' ? 'recover' : storedChallenge ? 'register' : 'login', authEmail: storedChallenge?.email || '', accountCheck: null, resetToken: '', resendAt: Number(storedChallenge?.resendAt) || 0, requestPayload: null,
 };
 const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal']);
 const organizerRoutes = new Set(['invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn']);
@@ -32,7 +32,7 @@ let route = 'welcome', params = new URLSearchParams(), version = 0, toastTimer;
 let busyDraw = false, sessionLoaded = false;
 let pendingMagicVerification = null;
 const pendingActions = new Set();
-const titles = { welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
+const titles = { welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
 
 class ApiError extends Error {
   constructor(code, message, status, payload) { super(message); this.code = code; this.status = status; this.payload = payload; }
@@ -106,20 +106,58 @@ function render() {
   setupOTP(document.querySelector('#app'));
   setupInviteFields(document.querySelector('#app'));
   setupGroupFields(document.querySelector('#app'));
-  if (['register', 'login'].includes(route)) {
+  if (['register', 'login', 'recover-password'].includes(route)) {
     const user = currentUser();
-    for (const name of ['firstName', 'lastName', 'email']) { const input = document.querySelector(`form [name="${name}"]`); if (input && user[name]) input.value = user[name]; }
+    for (const name of ['firstName', 'lastName', 'email']) { const input = document.querySelector(`form [name="${name}"]`); const value = name === 'email' ? state.authEmail || state.invitation?.recipientEmail || user.email : user[name]; if (input && value) input.value = value; }
   }
-  if (state.invitationErrorCode === 'EMAIL_MISMATCH' && state.user && route.startsWith('invitation')) {
-    const body = document.querySelector('.invitation-body');
-    if (body) body.insertAdjacentHTML('beforeend', '<button class="btn btn-secondary auth-submit" style="margin-top:12px" data-action="switch-account">Entrar com outro e-mail</button>');
+  if (route === 'register') {
+    const emailInput = document.querySelector('#register-email');
+    emailInput?.addEventListener('input', () => { state.accountCheck = null; updateEmailFeedback(emailInput.form); });
+    emailInput?.addEventListener('blur', () => { if (emailInput.validity.valid && emailInput.value) void checkAccount(emailInput.form).catch(() => {}); });
+    if (emailInput) { updateEmailFeedback(emailInput.form); if (emailInput.value) void checkAccount(emailInput.form).catch(() => {}); }
   }
-  if (state.invitation?.status === 'accepted' && ['invitation', 'invitation-new'].includes(route)) {
-    const access = document.querySelector('[data-action="accept-invite"],[data-action="register-invited"]');
-    if (access) { access.dataset.action = state.user ? 'accept-invite' : 'login-invited'; access.innerHTML = `${state.user ? 'Ver meu grupo' : 'Entrar para ver meu grupo'} ${icon('arrow-right', 18)}`; }
-  }
+  document.querySelectorAll('[name="passwordConfirm"]').forEach(input => {
+    const check = () => input.setCustomValidity(input.value && input.value !== input.form.elements.password.value ? 'As senhas precisam ser iguais.' : '');
+    input.addEventListener('input', check); input.form.elements.password.addEventListener('input', check);
+  });
   updateCountdown();
   window.scrollTo({ top: 0, behavior: 'instant' });
+}
+function rememberAuthEmail() {
+  const input = document.querySelector('.auth-form [name="email"]');
+  if (input) state.authEmail = input.value.trim().toLowerCase();
+}
+function updateEmailFeedback(form, checking = false) {
+  const feedback = form?.querySelector('[data-email-feedback]');
+  if (!feedback) return;
+  const email = form.elements.email.value.trim().toLowerCase();
+  const result = state.accountCheck?.email === email ? state.accountCheck : null;
+  const verified = Boolean(email && (result ? result.emailVerified : state.invitation?.emailVerified) && state.invitation.recipientEmail?.toLowerCase() === email && state.inviteToken);
+  const badge = verified ? `<span class="auth-email-verified">${icon('check-circle', 15)} E-mail já validado pelo convite</span>` : '';
+  feedback.innerHTML = `${badge}${checking ? '<span class="auth-email-checking"> Conferindo e-mail…</span>' : ''}${result?.exists ? `<div class="auth-email-existing"><p>Já existe uma conta com este e-mail.${result.hasPassword === false ? ' Para definir sua primeira senha, use Recuperar senha.' : ' Entre na sua conta para continuar.'}</p><div class="auth-email-actions"><button type="button" class="btn btn-primary" data-route="login">Entrar na minha conta</button><button type="button" class="btn btn-secondary" data-route="recover-password">Recuperar senha</button></div><button type="button" class="auth-text-link auth-email-other" data-action="use-other-email">Criar conta com outro e-mail</button></div>` : ''}`;
+  const note = form.querySelector('[data-register-note]');
+  if (note) note.textContent = verified ? 'O convite já confirmou seu e-mail. Basta concluir o cadastro com sua senha.' : state.inviteToken && email ? 'Se usar outro e-mail, será preciso validá-lo por código. Este convite continua vinculado ao destinatário original.' : 'Vamos enviar um código para confirmar que esse e-mail é seu.';
+  const submit = form.querySelector('button[type="submit"]');
+  if (submit) submit.disabled = Boolean(result?.exists || form.getAttribute('aria-busy') === 'true');
+}
+async function checkAccount(form) {
+  const input = form?.elements.email;
+  if (!input || !input.value || !input.validity.valid) return null;
+  const email = input.value.trim().toLowerCase();
+  state.authEmail = email;
+  updateEmailFeedback(form, true);
+  let result;
+  try { result = await post('/auth/account', { email, ...(state.inviteToken ? { inviteToken: state.inviteToken } : {}) }); }
+  catch (error) { if (form.isConnected && input.value.trim().toLowerCase() === email) updateEmailFeedback(form); throw error; }
+  if (!form.isConnected || input.value.trim().toLowerCase() !== email) return null;
+  state.accountCheck = { ...result, email }; updateEmailFeedback(form);
+  return state.accountCheck;
+}
+function checkPasswords(form) {
+  const password = form.elements.password.value, passwordConfirm = form.elements.passwordConfirm.value;
+  if (password.length < 12 || password.length > 128) throw new ApiError('INVALID_PASSWORD', 'Use uma senha com 12 a 128 caracteres.');
+  if (password !== passwordConfirm) throw new ApiError('PASSWORD_MISMATCH', 'As senhas precisam ser iguais.');
+  return { password, passwordConfirm };
 }
 function setInvitationToken(token) {
   state.inviteToken = token || ''; state.inviteContext = Boolean(token);
@@ -132,7 +170,7 @@ function saveChallenge(result) {
   const now = Date.now();
   state.resendAt = now + Math.max(30, Number(result.resendAfter) || 60) * 1000;
   const expiresAt = result.expiresAt ? new Date(result.expiresAt).getTime() : now + 10 * 60 * 1000;
-  state.challenge = { challengeId: result.challengeId, email: result.email, resendAt: state.resendAt, expiresAt };
+  state.challenge = { challengeId: result.challengeId, email: result.email, purpose: state.authMode === 'recover' ? 'recover' : 'register', resendAt: state.resendAt, expiresAt };
   storage.set(CHALLENGE_KEY, JSON.stringify(state.challenge));
 }
 function parseHash(hash = location.hash) {
@@ -158,13 +196,20 @@ async function navigate(next, options = {}) {
   const parsed = parseHash(`#${next}`);
   next = parsed.route;
   const query = parsed.params;
+  if (next === 'verify' && query.get('purpose') === 'recover' && /^[0-9a-f-]{36}$/i.test(query.get('challengeId') || '') && query.get('email')) {
+    const invitation = query.get('invitation');
+    if (/^[A-Za-z0-9_-]{43}$/.test(invitation || '')) setInvitationToken(invitation);
+    state.authMode = 'recover'; state.authEmail = query.get('email'); state.pendingUser = { email: state.authEmail, firstName: '', lastName: '' };
+    if (state.challenge?.challengeId !== query.get('challengeId')) saveChallenge({ challengeId: query.get('challengeId'), email: state.authEmail, resendAfter: 60 });
+  }
   if (options.id) query.set('id', options.id);
   if (options.token) query.set('token', options.token);
   if (groupRoutes.has(next) && !query.get('id') && state.group?.id) query.set('id', state.group.id);
   if (next.startsWith('invitation') && next !== 'invitation-accepted' && !query.get('token') && state.inviteToken) query.set('token', state.inviteToken);
   if (signedRoutes.has(next) && !state.user) { state.returnTo = href(next, query).slice(1); next = 'login'; }
   if (groupRoutes.has(next) && !query.get('id')) next = 'dashboard';
-  if (['verify', 'verify-error', 'verify-expired'].includes(next) && !state.challenge) next = state.user ? 'dashboard' : 'login';
+  if (['verify', 'verify-error', 'verify-expired'].includes(next) && !state.challenge) next = query.get('purpose') === 'recover' ? 'recover-password' : state.user ? 'dashboard' : 'login';
+  if (next === 'reset-password' && !state.resetToken) next = 'recover-password';
   if (['verify', 'verify-error'].includes(next) && state.challenge?.expiresAt && Date.now() >= state.challenge.expiresAt) next = 'verify-expired';
   if (next === 'welcome' && state.user) next = 'dashboard';
   route = next; params = query;
@@ -207,13 +252,14 @@ async function navigate(next, options = {}) {
       state.drawn = Boolean(invitation.group?.drawn);
       state.role = 'member'; state.organizerEmail = '';
       const status = String(invitation.status || '').toLowerCase();
-      route = ['expired', 'revoked'].includes(status) ? 'invitation-expired' : (state.drawn && status !== 'accepted') || ['closed', 'drawn'].includes(status) ? 'invitation-closed' : state.user ? 'invitation' : 'invitation-new';
+      route = ['expired', 'revoked'].includes(status) ? 'invitation-expired' : (state.drawn && status !== 'accepted' && !invitation.currentUserAccepted) || ['closed', 'drawn'].includes(status) ? 'invitation-closed' : state.user ? 'invitation' : 'invitation-new';
       if (['invitation-expired', 'invitation-closed'].includes(route)) setInvitationToken('');
       history.replaceState(null, '', href(route, params));
-    } else if (['register', 'login'].includes(route) && state.inviteToken && !state.invitation) {
+    } else if (['register', 'login', 'recover-password'].includes(route) && state.inviteToken) {
       const invitation = await api(`/invitations/${segment(state.inviteToken)}`);
       if (navigation !== version) return;
       state.invitation = invitation; state.group = invitation.group;
+      if (!state.authEmail) state.authEmail = invitation.recipientEmail || '';
     }
     if (navigation === version) render();
   } catch (error) {
@@ -242,6 +288,8 @@ function lockForm(form, locked) {
   form.setAttribute('aria-busy', String(locked));
   form.querySelectorAll('button[type="submit"]').forEach(button => { button.disabled = locked; });
   setInviteFieldsBusy(form, locked);
+  if (['register', 'login', 'recover-password', 'reset-password', 'verify'].includes(form.dataset.form)) form.querySelectorAll('input').forEach(input => { input.disabled = locked; });
+  if (form.dataset.form === 'register') updateEmailFeedback(form);
 }
 async function completeLogin(user, fromLink = false) {
   if (!user?.id) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar sua conta. Tente entrar novamente.');
@@ -260,19 +308,37 @@ async function submit(event) {
   const type = form.dataset.form;
   lockForm(form, true);
   try {
-    if (type === 'register' || type === 'login') {
-      const payload = { email: value('email').toLowerCase(), ...(state.inviteToken ? { inviteToken: state.inviteToken } : {}) };
-      if (type === 'register') {
-        if (!value('firstName') || !value('lastName')) throw new ApiError('INVALID_NAME', 'Preencha seu nome e sobrenome para continuar.');
-        Object.assign(payload, { firstName: value('firstName'), lastName: value('lastName'), avatar: getSignupAvatar() || null });
-      }
-      const result = await post('/auth/request', payload);
-      state.authMode = type; state.requestPayload = payload; state.pendingUser = { firstName: payload.firstName || '', lastName: payload.lastName || '', email: result.email || payload.email, avatar: payload.avatar || null };
+    if (type === 'register') {
+      const credentials = checkPasswords(form);
+      const payload = { email: value('email').toLowerCase(), firstName: value('firstName'), lastName: value('lastName'), avatar: getSignupAvatar() || null, ...credentials, ...(state.inviteToken ? { inviteToken: state.inviteToken } : {}) };
+      if (!payload.firstName || !payload.lastName) throw new ApiError('INVALID_NAME', 'Preencha seu nome e sobrenome para continuar.');
+      const account = await checkAccount(form);
+      if (account?.exists) return;
+      state.authMode = 'register'; state.authEmail = payload.email;
+      const result = await post('/auth/register', payload);
+      state.pendingUser = { firstName: payload.firstName, lastName: payload.lastName, email: result.email || payload.email, avatar: payload.avatar };
+      if (result.user) { await completeLogin(result.user); return; }
       saveChallenge({ ...result, email: result.email || payload.email });
       await navigate('verify');
-    } else if (type === 'verify') {
-      const result = await post('/auth/verify', { challengeId: state.challenge.challengeId, code: value('code') });
+    } else if (type === 'login') {
+      state.authMode = 'login'; state.authEmail = value('email').toLowerCase();
+      const result = await post('/auth/login', { email: state.authEmail, password: String(data.get('password') || '') });
       await completeLogin(result.user);
+    } else if (type === 'recover-password') {
+      state.authMode = 'recover'; state.authEmail = value('email').toLowerCase(); state.resetToken = '';
+      const result = await post('/auth/password/request', { email: state.authEmail, ...(state.inviteToken ? { inviteToken: state.inviteToken } : {}) });
+      state.pendingUser = { firstName: '', lastName: '', email: state.authEmail };
+      saveChallenge({ ...result, email: result.email || state.authEmail }); await navigate('verify');
+    } else if (type === 'verify') {
+      const payload = { challengeId: state.challenge.challengeId, code: value('code') };
+      if (state.authMode === 'recover') {
+        const result = await post('/auth/password/verify', payload);
+        state.resetToken = result.resetToken; state.authEmail = result.email || state.challenge.email;
+        clearChallenge(); await navigate('reset-password');
+      } else { const result = await post('/auth/verify', payload); await completeLogin(result.user); }
+    } else if (type === 'reset-password') {
+      await post('/auth/password/reset', { resetToken: state.resetToken, ...checkPasswords(form) });
+      state.resetToken = ''; state.user = null; clearChallenge(); await navigate('password-ready');
     } else if (type === 'create-group') {
       const payload = { name: value('name'), date: value('date'), budget: parseBudget(value('budget')), location: value('location'), description: value('description') };
       if (!payload.name || !payload.date || !Number.isFinite(payload.budget) || payload.budget < 1) throw new ApiError('INVALID_GROUP', 'Confira o nome, a data e o valor do presente.');
@@ -296,7 +362,10 @@ async function submit(event) {
   } catch (error) {
     if (type === 'verify' && error.code === 'INVALID_CODE') await navigate('verify-error');
     else if (type === 'verify' && error.code === 'EXPIRED_CODE') await navigate('verify-expired');
-    else if (error.status === 401) { state.user = null; await navigate('login'); toast(errorMessage(error)); }
+    else if (type === 'verify' && error.code === 'ACCOUNT_EXISTS') { state.authEmail = state.challenge?.email || state.authEmail; clearChallenge(); await navigate('login'); toast(errorMessage(error)); }
+    else if (type === 'register' && error.code === 'ACCOUNT_EXISTS') { state.accountCheck = { email: value('email').toLowerCase(), exists: true }; updateEmailFeedback(form); }
+    else if (type === 'reset-password' && ['RESET_EXPIRED', 'INVALID_RESET_TOKEN', 'EXPIRED_CODE', 'INVALID_CODE'].includes(error.code)) { state.resetToken = ''; await navigate('recover-password'); toast(errorMessage(error)); }
+    else if (error.status === 401 && !['login', 'recover-password', 'reset-password'].includes(type)) { state.user = null; await navigate('login'); toast(errorMessage(error)); }
     else if (form.isConnected) formError(form, errorMessage(error));
     else toast(errorMessage(error));
   } finally { if (form.isConnected) lockForm(form, false); }
@@ -318,7 +387,8 @@ async function logout(keepInvitation = false) {
   state.user = null; state.groups = []; state.participants = []; state.match = null; state.revealed = false; state.drawn = false; state.pendingUser = null; state.role = 'member';
   clearChallenge(); resetSignupAvatar(); setInvitationToken(invite);
   if (!invite) { state.invitation = null; state.group = null; }
-  await navigate(keepInvitation ? 'login' : 'welcome');
+  state.invitation = null; state.authEmail = '';
+  await navigate(keepInvitation ? 'invitation' : 'welcome', keepInvitation ? { token: invite } : {});
 }
 async function action(name, target) {
   switch (name) {
@@ -328,14 +398,17 @@ async function action(name, target) {
     case 'profile': if (state.user) await openProfileEditor(state.user, user => { state.user = user; state.participants = state.participants.map(person => person.email === user.email ? { ...person, name: `${user.firstName} ${user.lastName}`, avatar: user.avatar } : person); render(); }); break;
     case 'logout': await logout(); break;
     case 'switch-account': await logout(true); break;
-    case 'register-invited': state.authMode = 'register'; await navigate('register'); break;
-    case 'login-invited': state.authMode = 'login'; await navigate('login'); break;
+    case 'toggle-password': { const input = document.getElementById(target.dataset.passwordTarget); if (!input) break; const show = input.type === 'password'; input.type = show ? 'text' : 'password'; target.textContent = show ? 'Ocultar' : 'Mostrar'; target.setAttribute('aria-pressed', String(show)); target.setAttribute('aria-label', `${show ? 'Ocultar' : 'Mostrar'} senha`); break; }
+    case 'use-other-email': { const form = target.closest('form'); const input = form?.elements.email; if (input) { input.value = ''; state.authEmail = ''; state.accountCheck = null; updateEmailFeedback(form); input.focus(); } break; }
+    case 'register-invited': state.authMode = 'register'; state.authEmail = state.invitation?.recipientEmail || state.authEmail; await navigate('register'); break;
+    case 'login-invited': state.authMode = 'login'; state.authEmail = state.invitation?.recipientEmail || state.authEmail; await navigate('login'); break;
     case 'resend-code': {
       if (Date.now() < state.resendAt) return;
       const email = state.challenge?.email || state.pendingUser?.email;
       if (!email) { await navigate('login'); return; }
-      const result = await post('/auth/request', { ...(state.requestPayload || { email }), ...(state.inviteToken ? { inviteToken: state.inviteToken } : {}) });
-      saveChallenge({ ...result, email: result.email || email }); await navigate('verify'); toast(state.authMode === 'login' ? 'Se o e-mail estiver cadastrado, um novo código chegará em instantes.' : 'Um novo código está a caminho do seu e-mail.'); break;
+      const recovering = state.authMode === 'recover';
+      const result = await post(recovering ? '/auth/password/request' : '/auth/request', { email, ...(!recovering ? { challengeId: state.challenge.challengeId } : {}), ...(state.inviteToken ? { inviteToken: state.inviteToken } : {}) });
+      saveChallenge({ ...result, email: result.email || email }); await navigate('verify'); toast(recovering ? 'Se o e-mail estiver cadastrado, um novo código chegará em instantes.' : 'Um novo código está a caminho do seu e-mail.'); break;
     }
     case 'accept-invite': {
       if (!state.user) { await navigate('register'); return; }
@@ -345,7 +418,7 @@ async function action(name, target) {
         state.group = result.group || result; state.invitationError = ''; setInvitationToken('');
         await navigate('invitation-accepted', { id: state.group.id });
       } catch (error) {
-        if (error.code === 'EMAIL_MISMATCH') { state.invitationError = errorMessage(error); state.invitationErrorCode = error.code; render(); }
+        if (['EMAIL_MISMATCH', 'NOT_INVITED'].includes(error.code)) { state.invitationError = errorMessage(error); state.invitationErrorCode = error.code; render(); }
         else if (['INVITATION_CLOSED', 'CLOSED', 'INVITATION_EXPIRED'].includes(error.code)) { setInvitationToken(''); await navigate(error.code === 'INVITATION_EXPIRED' ? 'invitation-expired' : 'invitation-closed', { skipLoad: true }); toast(errorMessage(error)); }
         else throw error;
       }
@@ -386,14 +459,14 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['help', 'close-dialog', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'run-draw', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['help', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'run-draw', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }
   const target = event.target.closest('[data-route],[data-action]');
   if (!target || target.disabled) return;
   if (target.tagName === 'A' && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)) return;
-  if (target.dataset.route) { event.preventDefault(); if (busyDraw) return; await navigate(target.dataset.route, { id: target.dataset.groupId || undefined }); return; }
+  if (target.dataset.route) { event.preventDefault(); if (busyDraw) return; rememberAuthEmail(); await navigate(target.dataset.route, { id: target.dataset.groupId || undefined }); return; }
   const name = target.dataset.action;
   if (!handledActions.has(name)) return;
   event.preventDefault();

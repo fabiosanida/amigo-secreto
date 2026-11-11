@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ApiError, query } from '../lib/db.js';
-import { clientIP, logout, rateLimit, requestAuthentication, sessionUser, verifyAuthentication } from '../lib/auth.js';
+import { accountAvailability, clientIP, loginAuthentication, logout, rateLimit, registerAuthentication, requestAuthentication, requestPasswordReset, resetPassword, sessionUser, verifyAuthentication, verifyPasswordReset } from '../lib/auth.js';
 import { acceptInvitation, createGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, resendInvite, retryNotifications, trackOpen } from '../lib/groups.js';
 import { updateProfile } from '../lib/profile.js';
 
@@ -66,12 +66,18 @@ export default async function handler(req, res) {
     if (method === 'GET' && path === 'health') { await query('SELECT 1'); return send(res, 200, { ok: true }); }
     if (method === 'GET' && path === 'internal/notifications/drain') { verifyCron(req); return send(res, 200, await drainOutbox()); }
     if (method === 'GET' && path === 'session') return send(res, 200, { user: await sessionUser(req) });
+    if (method === 'POST' && path === 'auth/register') return send(res, 200, await registerAuthentication(body, req, res));
+    if (method === 'POST' && path === 'auth/login') return send(res, 200, await loginAuthentication(body, req, res));
+    if (method === 'POST' && path === 'auth/account') return send(res, 200, await accountAvailability(body, req));
+    if (method === 'POST' && path === 'auth/password/request') return send(res, 200, await requestPasswordReset(body, req));
+    if (method === 'POST' && path === 'auth/password/verify') return send(res, 200, await verifyPasswordReset(body, req));
+    if (method === 'POST' && path === 'auth/password/reset') return send(res, 200, await resetPassword(body, req, res));
     if (method === 'POST' && path === 'auth/request') return send(res, 200, await requestAuthentication(body, req));
     if (method === 'POST' && path === 'auth/verify') return send(res, 200, await verifyAuthentication(body, req, res));
     if (method === 'POST' && path === 'auth/logout') return send(res, 200, await logout(req, res));
     if (method === 'GET' && parts[0] === 'invitations' && parts.length === 2) {
       await rateLimit('public-invitations', clientIP(req), 120, 3600);
-      return send(res, 200, await getInvitation(parts[1]));
+      return send(res, 200, await getInvitation(parts[1], await sessionUser(req)));
     }
     const user = await sessionUser(req, true);
     if (method === 'POST' && path === 'profile') { await rateLimit('profile', user.id, 30, 3600); return send(res, 200, await updateProfile(user, body)); }
