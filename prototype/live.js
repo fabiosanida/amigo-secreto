@@ -30,6 +30,7 @@ const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, 'verify-link']);
 const signedRoutes = new Set([...GROUP_ROUTES, 'account-ready', 'invitation-accepted']);
 let route = 'welcome', params = new URLSearchParams(), version = 0, toastTimer;
 let busyDraw = false, sessionLoaded = false;
+let pendingMagicVerification = null;
 const pendingActions = new Set();
 const titles = { welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
 
@@ -52,6 +53,15 @@ async function api(path, options = {}) {
   return data;
 }
 const post = (path, body = {}) => api(path, { method: 'POST', body });
+function verifyMagicLink(token) {
+  if (pendingMagicVerification?.token === token) return pendingMagicVerification.promise;
+  const request = { token, promise: post('/auth/verify', { token }) };
+  pendingMagicVerification = request;
+  request.promise = request.promise.finally(() => {
+    if (pendingMagicVerification === request) pendingMagicVerification = null;
+  });
+  return request.promise;
+}
 const segment = value => encodeURIComponent(String(value || ''));
 function errorMessage(error) {
   const messages = { INVALID_CODE: 'Esse código não confere. Confira os 6 dígitos e tente novamente.', EXPIRED_CODE: 'Seu código expirou. Peça um novo para continuar.', EMAIL_MISMATCH: 'Este convite foi enviado para outro e-mail. Entre com o endereço que recebeu o convite.', INVITATION_EXPIRED: 'Este convite expirou. Peça um novo à pessoa que organiza o grupo.', INVITATION_CLOSED: 'Este grupo já realizou o sorteio e encerrou os convites.', CLOSED: 'Este grupo já realizou o sorteio e encerrou os convites.', UNAUTHORIZED: 'Sua sessão terminou. Entre novamente para continuar.', FORBIDDEN: 'Sua conta não tem acesso a esta ação.', RATE_LIMITED: 'Aguarde um pouco antes de tentar novamente.', TOO_MANY_REQUESTS: 'Aguarde um pouco antes de tentar novamente.', ACCOUNT_NOT_FOUND: 'Não encontramos uma conta com esse e-mail. Crie sua conta para continuar.', NOT_FOUND: 'Não encontramos esta página. Confira o link recebido.' };
@@ -170,7 +180,7 @@ async function navigate(next, options = {}) {
       const token = params.get('token');
       if (params.get('invitation')) setInvitationToken(params.get('invitation'));
       if (!token) throw new ApiError('EXPIRED_CODE', 'Este link de confirmação não está disponível. Peça um novo código.');
-      const result = await post('/auth/verify', { token });
+      const result = await verifyMagicLink(token);
       if (navigation !== version) return;
       await completeLogin(result.user, true); return;
     }
@@ -398,8 +408,16 @@ document.addEventListener('click', async event => {
   finally { pendingActions.delete(name); if (target.isConnected) target.disabled = false; updateCountdown(); }
 });
 document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target !== dialog) return; const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
-window.addEventListener('popstate', () => { if (busyDraw) return; const next = parseHash(); void navigate(href(next.route, next.params).slice(1), { replace: true }); });
-window.addEventListener('hashchange', () => { if (location.hash === '#main' || busyDraw) return; const next = parseHash(); if (href(next.route, next.params) !== href(route, params)) void navigate(href(next.route, next.params).slice(1), { replace: true }); });
+function navigateFromHistory() {
+  // Bootstrap reads the latest hash after the session response arrives.
+  if (!sessionLoaded || busyDraw || location.hash === '#main') return;
+  const next = parseHash();
+  const destination = href(next.route, next.params);
+  if (destination === href(route, params)) return;
+  void navigate(destination.slice(1), { replace: true });
+}
+window.addEventListener('popstate', navigateFromHistory);
+window.addEventListener('hashchange', navigateFromHistory);
 setInterval(updateCountdown, 1000);
 async function start() {
   document.body.dataset.live = 'true';
