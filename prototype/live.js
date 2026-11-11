@@ -4,6 +4,7 @@ import { setupOTP } from './otp.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from './ui.js';
 import { renderAuth, AUTH_ROUTES } from './auth.js';
 import { renderGroups, GROUP_ROUTES } from './groups.js';
+import { renderAdmin, ADMIN_ROUTES } from './admin.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
 
 const INVITE_KEY = 'amigo-secreto:invitation';
@@ -18,6 +19,7 @@ function readChallenge() {
 const storedChallenge = readChallenge();
 const state = {
   production: true, user: null, groups: [], group: null, participants: [],
+  adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
   role: 'member', organizerEmail: '', drawn: false, revealed: false, match: null,
   invitation: null, inviteToken: storage.get(INVITE_KEY) || '',
   inviteContext: Boolean(storage.get(INVITE_KEY)), inviteEmails: [], inviteQueued: [],
@@ -26,13 +28,13 @@ const state = {
 };
 const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal']);
 const organizerRoutes = new Set(['invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn']);
-const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, 'verify-link']);
-const signedRoutes = new Set([...GROUP_ROUTES, 'account-ready', 'invitation-accepted']);
+const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
+const signedRoutes = new Set([...GROUP_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
 let route = 'welcome', params = new URLSearchParams(), version = 0, toastTimer;
 let busyDraw = false, sessionLoaded = false;
 let pendingMagicVerification = null;
 const pendingActions = new Set();
-const titles = { welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
+const titles = { admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
 
 class ApiError extends Error {
   constructor(code, message, status, payload) { super(message); this.code = code; this.status = status; this.payload = payload; }
@@ -75,7 +77,7 @@ function viewState() {
 }
 function shell(content) {
   const user = currentUser();
-  return `<header class="app-header"><a class="app-brand-link" href="#dashboard" data-route="dashboard" aria-label="Amigo Secreto, meus grupos">${brand()}</a><nav class="app-nav" aria-label="Navegação principal"><button class="active" data-route="dashboard">Meus grupos</button><button data-action="help">Como funciona</button></nav><div class="app-account"><span class="account-name">${escapeHtml(user.firstName)}</span><button data-action="profile" aria-label="Minha conta">${avatar(`${user.firstName} ${user.lastName}`, 0, '', user.avatar ?? null)}</button></div></header><main id="main" class="app-main transition-in" tabindex="-1">${content}</main><footer class="app-footer"><span>${icon('heart', 13)} Gente querida. Boas surpresas.</span><button data-action="help">Feito para aproximar.</button></footer>`;
+  return `<header class="app-header"><a class="app-brand-link" href="#dashboard" data-route="dashboard" aria-label="Amigo Secreto, meus grupos">${brand()}</a><nav class="app-nav" aria-label="Navegação principal"><button class="${ADMIN_ROUTES.includes(route) ? '' : 'active'}" data-route="dashboard">Meus grupos</button>${state.user?.isAdmin ? `<button class="${ADMIN_ROUTES.includes(route) ? 'active' : ''}" data-route="admin">Administração</button>` : ''}<button data-action="help">Como funciona</button></nav><div class="app-account">${state.user?.isAdmin ? `<button class="btn btn-secondary admin-mobile-nav" data-route="admin" aria-label="Administração">${icon('shield', 17)}</button>` : ''}<span class="account-name">${escapeHtml(user.firstName)}</span><button data-action="profile" aria-label="Minha conta">${avatar(`${user.firstName} ${user.lastName}`, 0, '', user.avatar ?? null)}</button></div></header><main id="main" class="app-main transition-in" tabindex="-1">${content}</main><footer class="app-footer"><span>${icon('heart', 13)} Gente querida. Boas surpresas.</span><button data-action="help">Feito para aproximar.</button></footer>`;
 }
 function loading() {
   const content = `<section class="auth-success-card" aria-live="polite"><span class="auth-form-symbol">${icon('gift', 27)}</span><h1>Um instante.</h1><p>Estamos preparando tudo para você.</p></section>`;
@@ -89,14 +91,15 @@ function render() {
   const snapshot = viewState();
   setAvatarDirectory([...state.participants, ...state.groups.flatMap(group => group.participants || []), ...(state.match ? [state.match] : []), ...(state.user ? [{ ...state.user, name: `${state.user.firstName} ${state.user.lastName}` }] : [])]);
   const screen = route === 'dashboard' && !state.groups.length ? 'dashboard-empty' : route;
-  const content = renderAuth(screen, snapshot) ?? renderGroups(screen, snapshot);
-  document.querySelector('#app').innerHTML = GROUP_ROUTES.includes(screen) ? shell(content || '') : (content || '');
+  const content = renderAuth(screen, snapshot) ?? renderGroups(screen, snapshot) ?? renderAdmin(screen, snapshot);
+  document.querySelector('#app').innerHTML = (GROUP_ROUTES.includes(screen) || ADMIN_ROUTES.includes(screen)) ? shell(content || '') : (content || '');
   document.body.dataset.screen = screen;
   document.title = `${titles[screen] || 'Amigo Secreto'} · Amigo Secreto`;
   document.querySelector('#review-tools')?.replaceChildren();
   document.querySelectorAll('a[data-route]').forEach(link => {
     const destination = link.dataset.route;
     const query = new URLSearchParams();
+    if (link.dataset.adminId) query.set('id', link.dataset.adminId);
     if (groupRoutes.has(destination) && (link.dataset.groupId || state.group?.id)) query.set('id', link.dataset.groupId || state.group.id);
     if (destination.startsWith('invitation') && state.inviteToken) query.set('token', state.inviteToken);
     link.href = href(destination, query);
@@ -163,6 +166,12 @@ function setInvitationToken(token) {
   state.inviteToken = token || ''; state.inviteContext = Boolean(token);
   storage.set(INVITE_KEY, token || null);
 }
+function clearAdmin() {
+  state.adminOverview = null; state.adminData = null; state.adminTab = 'groups'; state.adminSearch = ''; state.adminCreatedPage = 1; state.adminParticipatingPage = 1;
+}
+function clearPrivateState() {
+  clearAdmin(); state.groups = []; state.group = null; state.participants = []; state.match = null; state.revealed = false; state.drawn = false; state.role = 'member'; state.inviteEmails = []; state.inviteQueued = []; setAvatarDirectory([]);
+}
 function clearChallenge() {
   state.challenge = null; state.requestPayload = null; storage.set(CHALLENGE_KEY, null);
 }
@@ -207,6 +216,8 @@ async function navigate(next, options = {}) {
   if (groupRoutes.has(next) && !query.get('id') && state.group?.id) query.set('id', state.group.id);
   if (next.startsWith('invitation') && next !== 'invitation-accepted' && !query.get('token') && state.inviteToken) query.set('token', state.inviteToken);
   if (signedRoutes.has(next) && !state.user) { state.returnTo = href(next, query).slice(1); next = 'login'; }
+  if (ADMIN_ROUTES.includes(next) && !state.user?.isAdmin) { clearAdmin(); next = state.user ? 'dashboard' : 'login'; query.delete('id'); }
+  if (['admin-group', 'admin-user'].includes(next) && !query.get('id')) next = 'admin';
   if (groupRoutes.has(next) && !query.get('id')) next = 'dashboard';
   if (['verify', 'verify-error', 'verify-expired'].includes(next) && !state.challenge) next = query.get('purpose') === 'recover' ? 'recover-password' : state.user ? 'dashboard' : 'login';
   if (next === 'reset-password' && !state.resetToken) next = 'recover-password';
@@ -219,6 +230,7 @@ async function navigate(next, options = {}) {
   if (location.hash !== destination) history[options.replace ? 'replaceState' : 'pushState'](null, '', destination);
   document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
   if (options.skipLoad) { render(); return; }
+  if (ADMIN_ROUTES.includes(route)) state.adminData = null;
   loading();
   try {
     if (route === 'verify-link') {
@@ -229,7 +241,27 @@ async function navigate(next, options = {}) {
       if (navigation !== version) return;
       await completeLogin(result.user, true); return;
     }
-    if (route === 'dashboard' || route === 'dashboard-empty') {
+    if (ADMIN_ROUTES.includes(route)) {
+      if (!state.user?.isAdmin) { clearAdmin(); await navigate('dashboard', { replace: true }); return; }
+      const page = key => String(Math.min(10000, Math.max(1, Math.floor(Number(params.get(key)) || 1))));
+      if (route === 'admin') {
+        state.adminTab = params.get('tab') === 'users' ? 'users' : 'groups';
+        state.adminSearch = (params.get('search') || '').trim().slice(0, 100);
+        const query = new URLSearchParams({ page: page('page'), limit: '25', search: state.adminSearch });
+        const [overview, data] = await Promise.all([state.adminOverview ? Promise.resolve(state.adminOverview) : api('/admin/overview'), api(`/admin/${state.adminTab}?${query}`)]);
+        if (navigation !== version || !state.user?.isAdmin) return;
+        state.adminOverview = overview; state.adminData = data;
+      } else {
+        const query = new URLSearchParams();
+        if (route === 'admin-user') {
+          state.adminCreatedPage = Number(page('createdPage')); state.adminParticipatingPage = Number(page('participatingPage'));
+          query.set('createdPage', String(state.adminCreatedPage)); query.set('participatingPage', String(state.adminParticipatingPage)); query.set('limit', '25');
+        }
+        const data = await api(`/admin/${route === 'admin-group' ? 'groups' : 'users'}/${segment(params.get('id'))}${query.size ? `?${query}` : ''}`);
+        if (navigation !== version || !state.user?.isAdmin) return;
+        state.adminData = data;
+      }
+    } else if (route === 'dashboard' || route === 'dashboard-empty') {
       const result = await api('/groups');
       if (navigation !== version) return;
       state.groups = result.groups || [];
@@ -265,7 +297,9 @@ async function navigate(next, options = {}) {
   } catch (error) {
     if (navigation !== version) return;
     if (error.status === 401 || error.code === 'UNAUTHORIZED') {
-      state.user = null; await navigate('login', { replace: true }); toast(errorMessage(error));
+      state.user = null; clearPrivateState(); await navigate('login', { replace: true }); toast(errorMessage(error));
+    } else if (ADMIN_ROUTES.includes(route) && error.status === 403) {
+      clearAdmin(); state.user = { ...state.user, isAdmin: false }; await navigate('dashboard', { replace: true }); toast(errorMessage(error));
     } else if (route === 'verify-link') {
       await navigate('login', { replace: true }); toast(errorMessage(error));
     } else if (route.startsWith('invitation') && ['INVITATION_EXPIRED', 'INVITATION_CLOSED', 'CLOSED', 'NOT_FOUND'].includes(error.code)) {
@@ -293,6 +327,7 @@ function lockForm(form, locked) {
 }
 async function completeLogin(user, fromLink = false) {
   if (!user?.id) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar sua conta. Tente entrar novamente.');
+  if (state.user?.id !== user.id || !user.isAdmin) clearPrivateState();
   state.user = user; state.pendingUser = null; clearChallenge(); resetSignupAvatar();
   if (state.inviteToken) await navigate('invitation', { token: state.inviteToken, replace: fromLink });
   else { const destination = state.returnTo || (state.authMode === 'register' ? 'account-ready' : 'dashboard'); state.returnTo = ''; await navigate(destination, { replace: fromLink }); }
@@ -308,7 +343,10 @@ async function submit(event) {
   const type = form.dataset.form;
   lockForm(form, true);
   try {
-    if (type === 'register') {
+    if (type === 'admin-search') {
+      if (!state.user?.isAdmin) return;
+      await navigate(`admin?${new URLSearchParams({ tab: state.adminTab, search: value('search'), page: '1' })}`);
+    } else if (type === 'register') {
       const credentials = checkPasswords(form);
       const payload = { email: value('email').toLowerCase(), firstName: value('firstName'), lastName: value('lastName'), avatar: getSignupAvatar() || null, ...credentials, ...(state.inviteToken ? { inviteToken: state.inviteToken } : {}) };
       if (!payload.firstName || !payload.lastName) throw new ApiError('INVALID_NAME', 'Preencha seu nome e sobrenome para continuar.');
@@ -338,7 +376,7 @@ async function submit(event) {
       } else { const result = await post('/auth/verify', payload); await completeLogin(result.user); }
     } else if (type === 'reset-password') {
       await post('/auth/password/reset', { resetToken: state.resetToken, ...checkPasswords(form) });
-      state.resetToken = ''; state.user = null; clearChallenge(); await navigate('password-ready');
+      state.resetToken = ''; state.user = null; clearPrivateState(); clearChallenge(); await navigate('password-ready');
     } else if (type === 'create-group') {
       const payload = { name: value('name'), date: value('date'), budget: parseBudget(value('budget')), location: value('location'), description: value('description') };
       if (!payload.name || !payload.date || !Number.isFinite(payload.budget) || payload.budget < 1) throw new ApiError('INVALID_GROUP', 'Confira o nome, a data e o valor do presente.');
@@ -365,7 +403,7 @@ async function submit(event) {
     else if (type === 'verify' && error.code === 'ACCOUNT_EXISTS') { state.authEmail = state.challenge?.email || state.authEmail; clearChallenge(); await navigate('login'); toast(errorMessage(error)); }
     else if (type === 'register' && error.code === 'ACCOUNT_EXISTS') { state.accountCheck = { email: value('email').toLowerCase(), exists: true }; updateEmailFeedback(form); }
     else if (type === 'reset-password' && ['RESET_EXPIRED', 'INVALID_RESET_TOKEN', 'EXPIRED_CODE', 'INVALID_CODE'].includes(error.code)) { state.resetToken = ''; await navigate('recover-password'); toast(errorMessage(error)); }
-    else if (error.status === 401 && !['login', 'recover-password', 'reset-password'].includes(type)) { state.user = null; await navigate('login'); toast(errorMessage(error)); }
+    else if (error.status === 401 && !['login', 'recover-password', 'reset-password'].includes(type)) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); }
     else if (form.isConnected) formError(form, errorMessage(error));
     else toast(errorMessage(error));
   } finally { if (form.isConnected) lockForm(form, false); }
@@ -376,6 +414,37 @@ function updateCountdown() {
   document.querySelectorAll('[data-action="resend-code"]').forEach(element => { element.disabled = seconds > 0 || pendingActions.has('resend-code'); });
   if (['verify', 'verify-error'].includes(route) && state.challenge?.expiresAt && Date.now() >= state.challenge.expiresAt && !pendingActions.has('resend-code')) void navigate('verify-expired', { replace: true });
 }
+function showDeleteGroup() {
+  if (state.role !== 'organizer' || !state.group?.id) return;
+  const group = { id: state.group.id, name: state.group.name };
+  const dialog = document.querySelector('#delete-group-dialog');
+  if (!dialog) return;
+  dialog.innerHTML = `<form class="delete-group-form"><div class="delete-group-heading"><span class="delete-group-symbol">${icon('alert', 23)}</span><button type="button" class="icon-button" data-action="close-dialog" aria-label="Fechar confirmação">${icon('x', 21)}</button></div><span class="eyebrow">ANTES DE SE DESPEDIR</span><h2 id="delete-group-title">Apagar este amigo secreto?</h2><p>O grupo <strong>${escapeHtml(group.name)}</strong> será apagado permanentemente, junto com seus convites, participações e resultados do sorteio. As contas das pessoas continuam na aplicação.</p><div class="delete-group-warning">${icon('info', 19)}<span>Essa ação não pode ser desfeita. Os e-mails já enviados não serão recolhidos.</span></div><label class="field" for="delete-group-confirmation">Para confirmar, digite o nome do grupo:<strong class="delete-group-name">${escapeHtml(group.name)}</strong><input id="delete-group-confirmation" name="confirmation" type="text" required autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Nome exato do amigo secreto"></label><div class="delete-group-actions"><button type="button" class="btn btn-secondary" data-action="close-dialog">Cancelar</button><button type="submit" class="btn btn-danger" disabled>Apagar definitivamente</button></div></form>`;
+  const form = dialog.querySelector('form'), input = form.elements.confirmation, button = form.querySelector('button[type="submit"]');
+  input.addEventListener('input', () => { button.disabled = input.value !== group.name; });
+  dialog.oncancel = event => { if (form.getAttribute('aria-busy') === 'true') event.preventDefault(); };
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (form.getAttribute('aria-busy') === 'true' || input.value !== group.name || !form.reportValidity()) return;
+    form.setAttribute('aria-busy', 'true');
+    form.querySelectorAll('button,input').forEach(element => { element.disabled = true; });
+    button.textContent = 'Apagando…';
+    try {
+      await post(`/groups/${segment(group.id)}/delete`, { confirmation: input.value });
+      if (state.invitation?.group?.id === group.id) { state.invitation = null; setInvitationToken(''); }
+      clearPrivateState();
+      dialog.close(); dialog.replaceChildren();
+      await navigate('dashboard', { replace: true });
+      toast('Amigo secreto apagado.');
+    } catch (error) {
+      if (error.status === 401) { state.user = null; clearPrivateState(); dialog.close(); await navigate('login'); toast(errorMessage(error)); }
+      else formError(form, error.code === 'NOTIFICATIONS_IN_PROGRESS' ? 'Há notificações sendo enviadas para este grupo. Aguarde o envio terminar e tente apagar novamente.' : errorMessage(error));
+    } finally {
+      if (form.isConnected) { form.setAttribute('aria-busy', 'false'); form.querySelectorAll('button,input').forEach(element => { element.disabled = false; }); button.textContent = 'Apagar definitivamente'; button.disabled = input.value !== group.name; }
+    }
+  });
+  dialog.showModal();
+}
 function showHelp() {
   const dialog = document.querySelector('#help-dialog');
   dialog.innerHTML = `<div class="help-body"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px">${brand()}<button class="icon-button" data-action="close-dialog" aria-label="Fechar">${icon('x')}</button></div><span class="eyebrow">Simples do começo à surpresa</span><h2 id="help-title">Reúna. Convide. Surpreenda.</h2><div class="help-step"><span class="help-number">1</span><div><h3>Junte sua turma</h3><p>Crie seu grupo, combine a data e o valor do presente.</p></div></div><div class="help-step"><span class="help-number">2</span><div><h3>Convide por e-mail</h3><p>Cada pessoa confirma o próprio e-mail e aceita o convite. Quem organiza acompanha os envios e as confirmações.</p></div></div><div class="help-step"><span class="help-number">3</span><div><h3>Deixe a surpresa acontecer</h3><p>Com pelo menos 3 participantes confirmados, quem organiza pode fazer o sorteio. Uma única corrente conecta todo o grupo: ninguém tira a si mesmo, todos dão e recebem um presente.</p></div></div><p>Seu resultado é privado. Você pode consultá-lo na sua conta e recebe o nome por e-mail.</p><button class="btn btn-primary btn-block" data-action="close-dialog">Entendi ${icon('arrow-right', 16)}</button></div>`;
@@ -384,7 +453,7 @@ function showHelp() {
 async function logout(keepInvitation = false) {
   const invite = keepInvitation ? state.inviteToken : '';
   await post('/auth/logout');
-  state.user = null; state.groups = []; state.participants = []; state.match = null; state.revealed = false; state.drawn = false; state.pendingUser = null; state.role = 'member';
+  clearPrivateState(); state.user = null; state.pendingUser = null;
   clearChallenge(); resetSignupAvatar(); setInvitationToken(invite);
   if (!invite) { state.invitation = null; state.group = null; }
   state.invitation = null; state.authEmail = '';
@@ -393,9 +462,11 @@ async function logout(keepInvitation = false) {
 async function action(name, target) {
   switch (name) {
     case 'help': showHelp(); break;
-    case 'close-dialog': target.closest('dialog')?.close(); break;
+    case 'delete-group': showDeleteGroup(); break;
+    case 'refresh-admin': if (state.user?.isAdmin) { state.adminOverview = null; await navigate(href(route, params).slice(1), { replace: true }); } break;
+    case 'close-dialog': { const dialog = target.closest('dialog'); if (dialog?.querySelector('[aria-busy="true"]')) break; dialog?.close(); break; }
     case 'retry-route': if (!sessionLoaded) await start(); else await navigate(href(route, params).slice(1), { replace: true }); break;
-    case 'profile': if (state.user) await openProfileEditor(state.user, user => { state.user = user; state.participants = state.participants.map(person => person.email === user.email ? { ...person, name: `${user.firstName} ${user.lastName}`, avatar: user.avatar } : person); render(); }); break;
+    case 'profile': if (state.user) await openProfileEditor(state.user, user => { if (state.user?.id !== user.id || !user.isAdmin) clearAdmin(); state.user = user; state.participants = state.participants.map(person => person.email === user.email ? { ...person, name: `${user.firstName} ${user.lastName}`, avatar: user.avatar } : person); render(); }); break;
     case 'logout': await logout(); break;
     case 'switch-account': await logout(true); break;
     case 'toggle-password': { const input = document.getElementById(target.dataset.passwordTarget); if (!input) break; const show = input.type === 'password'; input.type = show ? 'text' : 'password'; target.textContent = show ? 'Ocultar' : 'Mostrar'; target.setAttribute('aria-pressed', String(show)); target.setAttribute('aria-label', `${show ? 'Ocultar' : 'Mostrar'} senha`); break; }
@@ -459,14 +530,14 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['help', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'run-draw', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['help', 'delete-group', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'run-draw', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }
   const target = event.target.closest('[data-route],[data-action]');
   if (!target || target.disabled) return;
   if (target.tagName === 'A' && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)) return;
-  if (target.dataset.route) { event.preventDefault(); if (busyDraw) return; rememberAuthEmail(); await navigate(target.dataset.route, { id: target.dataset.groupId || undefined }); return; }
+  if (target.dataset.route) { event.preventDefault(); if (busyDraw) return; rememberAuthEmail(); await navigate(target.dataset.route, { id: target.dataset.adminId || target.dataset.groupId || undefined }); return; }
   const name = target.dataset.action;
   if (!handledActions.has(name)) return;
   event.preventDefault();
@@ -475,12 +546,12 @@ document.addEventListener('click', async event => {
   try { await action(name, target); }
   catch (error) {
     if (name === 'resend-code' && error.retryAfter) { state.resendAt = Date.now() + error.retryAfter * 1000; if (state.challenge) { state.challenge.resendAt = state.resendAt; storage.set(CHALLENGE_KEY, JSON.stringify(state.challenge)); } }
-    if (error.status === 401) { state.user = null; await navigate('login'); }
+    if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); }
     toast(errorMessage(error));
   }
   finally { pendingActions.delete(name); if (target.isConnected) target.disabled = false; updateCountdown(); }
 });
-document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target !== dialog) return; const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
+document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target !== dialog || dialog.querySelector('[aria-busy="true"]')) return; const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
 function navigateFromHistory() {
   // Bootstrap reads the latest hash after the session response arrives.
   if (!sessionLoaded || busyDraw || location.hash === '#main') return;

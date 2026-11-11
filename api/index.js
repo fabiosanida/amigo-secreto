@@ -1,8 +1,10 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ApiError, query } from '../lib/db.js';
 import { accountAvailability, clientIP, loginAuthentication, logout, rateLimit, registerAuthentication, requestAuthentication, requestPasswordReset, resetPassword, sessionUser, verifyAuthentication, verifyPasswordReset } from '../lib/auth.js';
-import { acceptInvitation, createGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, resendInvite, retryNotifications, trackOpen } from '../lib/groups.js';
+import { acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, resendInvite, retryNotifications, trackOpen } from '../lib/groups.js';
 import { updateProfile } from '../lib/profile.js';
+import { adminGroup, adminGroups, adminOverview, adminUser, adminUsers } from '../lib/admin.js';
+import { requireAdmin } from '../lib/admin-access.js';
 
 const MAX_BODY = 400000;
 export function verifyCron(req) {
@@ -77,9 +79,18 @@ export default async function handler(req, res) {
     if (method === 'POST' && path === 'auth/logout') return send(res, 200, await logout(req, res));
     if (method === 'GET' && parts[0] === 'invitations' && parts.length === 2) {
       await rateLimit('public-invitations', clientIP(req), 120, 3600);
-      return send(res, 200, await getInvitation(parts[1], await sessionUser(req)));
+      return send(res, 200, await getInvitation(parts[1], await sessionUser(req, false, { includeAvatar: false })));
     }
-    const user = await sessionUser(req, true);
+    const user = await sessionUser(req, true, { includeAvatar: path === 'profile' });
+    if (parts[0] === 'admin') {
+      requireAdmin(user);
+      const filters = { ...Object.fromEntries(url.searchParams), ...(req.query || {}) };
+      if (method === 'GET' && path === 'admin/overview') return send(res, 200, await adminOverview(user));
+      if (method === 'GET' && path === 'admin/groups') return send(res, 200, await adminGroups(user, filters));
+      if (method === 'GET' && path === 'admin/users') return send(res, 200, await adminUsers(user, filters));
+      if (method === 'GET' && parts.length === 3 && parts[1] === 'groups') return send(res, 200, await adminGroup(user, parts[2]));
+      if (method === 'GET' && parts.length === 3 && parts[1] === 'users') return send(res, 200, await adminUser(user, parts[2], filters));
+    }
     if (method === 'POST' && path === 'profile') { await rateLimit('profile', user.id, 30, 3600); return send(res, 200, await updateProfile(user, body)); }
     if (path === 'groups' && method === 'GET') return send(res, 200, await listGroups(user));
     if (path === 'groups' && method === 'POST') return send(res, 201, await createGroup(user, body));
@@ -87,6 +98,7 @@ export default async function handler(req, res) {
     if (parts[0] === 'groups') {
       const id = parts[1];
       if (parts.length === 2 && method === 'GET') return send(res, 200, await getGroup(user, id));
+      if (parts.length === 3 && parts[2] === 'delete' && method === 'POST') return send(res, 200, await deleteGroup(user, id, body));
       if (parts.length === 3 && parts[2] === 'invites' && method === 'POST') return send(res, 200, await invitePeople(user, id, body));
       if (parts.length === 5 && parts[2] === 'invites' && parts[4] === 'resend' && method === 'POST') return send(res, 200, await resendInvite(user, id, parts[3]));
       if (parts.length === 3 && parts[2] === 'draw' && method === 'POST') return send(res, 200, await drawGroup(user, id));

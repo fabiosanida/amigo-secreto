@@ -4,11 +4,12 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { renderAuth, AUTH_ROUTES } from '../prototype/auth.js';
 import { renderGroups, GROUP_ROUTES } from '../prototype/groups.js';
+import { renderAdmin, ADMIN_ROUTES } from '../prototype/admin.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from '../prototype/ui.js';
 
 const source = readFileSync(new URL('../prototype/live.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function harness({ hash = '#welcome', stored = new Map() } = {}) {
+function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {}) {
   const requests = [], listeners = {}, app = { innerHTML: '' }, location = { hash };
   const storage = new Map(stored);
   const noop = () => {};
@@ -18,9 +19,9 @@ function harness({ hash = '#welcome', stored = new Map() } = {}) {
     setTimeout: () => 0, clearTimeout: noop, setInterval: () => 0, location,
     sessionStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
     history: { pushState(a, b, hash) { location.hash = hash; }, replaceState(a, b, hash) { location.hash = hash; } },
-    document: { body: { dataset: {}, style: {} }, querySelector: selector => selector === '#app' ? app : null, querySelectorAll: () => [], addEventListener: noop },
+    document: { body: { dataset: {}, style: {} }, querySelector: selector => selector === '#app' ? app : selectors[selector] || null, querySelectorAll: () => [], addEventListener: noop },
     window: { scrollTo: noop, addEventListener(type, listener) { listeners[type] = listener; } },
-    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
+    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderAdmin, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
     setupInviteFields: noop, setInviteFieldsBusy: noop, setupGroupFields: noop, parseBudget: Number, setupOTP: noop,
     openProfileEditor: noop, setupPhotoInputs: noop, getSignupAvatar: () => null, resetSignupAvatar: noop,
     fetch(path, options) {
@@ -172,4 +173,102 @@ test('reloading after recovery preserves the invitation but requires a new code 
   assert.equal(h.state.inviteToken, inviteToken); assert.equal(h.state.authEmail, 'recipient@example.test');
   assert(h.app.innerHTML.includes('Seu convite para')); assert(h.app.innerHTML.includes('Grupo de teste'));
   assert.equal(h.requests.filter(request => request.path.endsWith('/accept')).length, 0);
+});
+
+const administrator = { ...signedInUser, id: 'admin-1', email: 'fabiosanida@gmail.com', isAdmin: true };
+const emptyAdminSummary = { summary: { groups: 0, drawnGroups: 0, users: 0, participants: 0, pendingInvitations: 0 } };
+const emptyAdminList = { groups: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 1 } };
+
+test('private routes never request admin data or expose navigation for a regular account', async () => {
+  for (const route of ['admin', 'admin-group?id=private-group', 'admin-user?id=private-user']) {
+    const h = harness({ hash: `#${route}` });
+    h.requests[0].respond({ user: signedInUser }); await tick();
+    assert.equal(h.requests.filter(request => request.path.startsWith('/api/admin')).length, 0);
+    h.requests.find(request => request.path === '/api/groups').respond({ groups: [] }); await tick();
+    assert(h.location.hash.startsWith('#dashboard'));
+    assert(!h.app.innerHTML.includes('data-route="admin"'));
+    assert.equal(renderAdmin('admin-group', { user: signedInUser, adminData: { group: { name: 'PRIVATE' } } }), '');
+  }
+});
+
+test('anonymous private navigation goes to login without loading private data', async () => {
+  const h = harness({ hash: '#admin-group?id=private-group' });
+  h.requests[0].respond({ user: null }); await tick();
+  assert(h.location.hash.startsWith('#login'));
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.state.adminData, null);
+});
+
+test('admin pagination fetches only the selected page and logout clears private data without storage', async () => {
+  const h = harness({ hash: '#admin?tab=groups&page=2&search=Family' });
+  h.requests[0].respond({ user: administrator }); await tick();
+  h.requests.find(request => request.path === '/api/admin/overview').respond(emptyAdminSummary);
+  const list = h.requests.find(request => request.path.startsWith('/api/admin/groups?'));
+  assert(list.path.includes('page=2')); assert(list.path.includes('limit=25')); assert(list.path.includes('search=Family'));
+  list.respond({ ...emptyAdminList, groups: [{ id: 'secret-group', name: 'Private gathering', date: '2026-12-24', organizer: administrator, acceptedCount: 3, participantCount: 3 }] }); await tick();
+  assert(h.app.innerHTML.includes('Private gathering')); assert(h.app.innerHTML.includes('data-route="admin"'));
+  assert.equal(h.storage.size, 0, 'Private dashboard data stays only in memory');
+  const leaving = h.action('logout', {});
+  h.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leaving;
+  assert.equal(h.state.adminData, null); assert.equal(h.state.adminOverview, null); assert.equal(h.state.user, null);
+  assert(!h.app.innerHTML.includes('Private gathering'));
+});
+
+test('a late private response cannot repopulate state after logout', async () => {
+  const h = harness({ hash: '#admin-group?id=secret-group' });
+  h.requests[0].respond({ user: administrator }); await tick();
+  const detail = h.requests.find(request => request.path === '/api/admin/groups/secret-group'); assert(detail);
+  const leaving = h.action('logout', {});
+  h.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leaving;
+  detail.respond({ group: { name: 'Private gathering' }, participants: [], results: [] }); await tick();
+  assert.equal(h.state.adminData, null); assert.equal(h.state.user, null);
+  assert(!h.app.innerHTML.includes('Private gathering'));
+});
+
+function deletionDialogFixture() {
+  const listeners = {}, attributes = new Map(), button = { disabled: true, textContent: '' };
+  const input = { value: '', disabled: false, addEventListener: (event, listener) => { listeners[event] = listener; } };
+  const form = { elements: { confirmation: input }, isConnected: true, reportValidity: () => true,
+    getAttribute: key => attributes.get(key), setAttribute: (key, value) => attributes.set(key, value),
+    querySelector: selector => selector === 'button[type="submit"]' ? button : null, querySelectorAll: () => [button, input],
+    addEventListener: (event, listener) => { listeners[event] = listener; },
+  };
+  const dialog = { innerHTML: '', open: false, showModal() { this.open = true; }, close() { this.open = false; }, replaceChildren() { form.isConnected = false; },
+    querySelector: selector => selector === 'form' ? form : selector === '[aria-busy="true"]' && attributes.get('aria-busy') === 'true' ? form : null,
+  };
+  return { dialog, form, button, input, listeners };
+}
+
+test('only organizers see deletion, opening and cancelling sends no deletion request', async () => {
+  const member = renderGroups('group', { production: true, user: signedInUser, role: 'member', group: invitedGroup, participants: [] });
+  assert(!member.includes('data-action="delete-group"'));
+  const owner = renderGroups('group', { production: true, user: signedInUser, role: 'organizer', group: invitedGroup, participants: [] });
+  assert(owner.includes('data-action="delete-group"'));
+  const fixture = deletionDialogFixture(), h = harness({ selectors: { '#delete-group-dialog': fixture.dialog } });
+  h.requests[0].respond({ user: null }); await tick();
+  h.state.user = signedInUser; h.state.group = invitedGroup; h.state.role = 'organizer';
+  await h.action('delete-group', {}); assert(fixture.dialog.open); assert(fixture.button.disabled);
+  await h.action('close-dialog', { closest: () => fixture.dialog }); assert(!fixture.dialog.open);
+  assert.equal(h.requests.filter(request => request.path.endsWith('/delete')).length, 0);
+  assert.equal(h.state.group.id, invitedGroup.id);
+});
+
+test('deletion requires the exact group name, posts once and clears stale results before returning to groups', async () => {
+  const fixture = deletionDialogFixture(), h = harness({ selectors: { '#delete-group-dialog': fixture.dialog } });
+  h.requests[0].respond({ user: null }); await tick();
+  h.state.user = administrator; h.state.group = invitedGroup; h.state.role = 'organizer'; h.state.match = { name: 'Private match' };
+  h.state.adminData = { results: ['Private result'] }; h.state.adminOverview = emptyAdminSummary;
+  await h.action('delete-group', {});
+  fixture.input.value = 'wrong name'; fixture.listeners.input(); assert(fixture.button.disabled);
+  await fixture.listeners.submit({ preventDefault() {} });
+  assert.equal(h.requests.filter(request => request.path.endsWith('/delete')).length, 0);
+  fixture.input.value = invitedGroup.name; fixture.listeners.input(); assert(!fixture.button.disabled);
+  const deleting = fixture.listeners.submit({ preventDefault() {} });
+  await fixture.listeners.submit({ preventDefault() {} });
+  const requests = h.requests.filter(request => request.path.endsWith('/delete')); assert.equal(requests.length, 1);
+  assert.equal(requests[0].path, '/api/groups/group-1/delete'); assert.equal(requests[0].body.confirmation, invitedGroup.name);
+  requests[0].respond({ ok: true, deletedId: invitedGroup.id }); await tick();
+  assert.equal(h.state.group, null); assert.equal(h.state.match, null); assert.equal(h.state.adminData, null); assert.equal(h.state.adminOverview, null);
+  h.requests.find(request => request.path === '/api/groups').respond({ groups: [] }); await deleting;
+  assert.equal(h.location.hash, '#dashboard'); assert(!fixture.dialog.open);
 });

@@ -69,7 +69,7 @@ function welcome(state) {
       <section class="auth-welcome-visual" aria-label="Ilustração de presentes e amigos celebrando juntos">
         <div class="auth-visual-grain"></div><span class="auth-visual-label">TEM CARINHO CHEGANDO.</span>
         ${giftArt()}
-        <div class="auth-floating-note auth-floating-note-top"><span class="auth-note-icon">${icon('shield', 18)}</span><div><strong>O segredo está seguro.</strong><span>Só você vê quem tirou.</span></div></div>
+        <div class="auth-floating-note auth-floating-note-top"><span class="auth-note-icon">${icon('shield', 18)}</span><div><strong>O segredo está seguro.</strong><span>Seu resultado fica na sua conta.</span></div></div>
         <div class="auth-floating-note auth-floating-note-bottom"><div class="auth-note-avatar">${avatar('Ana', 2)}</div><div><strong>${state.production ? 'Sua turma, mais perto' : 'Ana entrou na brincadeira'}</strong><span>Mais um motivo para celebrar ${icon('heart', 11)}</span></div></div>
         <div class="auth-visual-bottom"><span>01 — REÚNA SUA TURMA</span><div><i class="is-active"></i><i></i><i></i></div></div>
       </section>

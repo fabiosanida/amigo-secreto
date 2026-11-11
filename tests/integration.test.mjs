@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { createHmac, randomUUID } from 'node:crypto';
 import handler from '../api/index.js';
 import { getPool, query, transaction } from '../lib/db.js';
-import { flushOutbox, syncDeliveryReceipts } from '../lib/groups.js';
+import { flushOutbox, getGroup, syncDeliveryReceipts } from '../lib/groups.js';
 
 test('real Neon API: verified identity, roster permissions, atomic draw and durable notification retry', { skip: process.env.RUN_DB_TESTS !== '1', timeout: 240000 }, async t => {
   assert(process.env.DATABASE_URL && process.env.AUTH_SECRET && process.env.NOTIFICATIONS_API_URL, 'Configure the isolated integration environment.');
@@ -148,7 +148,12 @@ test('real Neon API: verified identity, roster permissions, atomic draw and dura
       const forged = await api(`groups/${groupId}/result?userId=${owner.id}`, { cookie: member.cookie });
       assert.deepEqual(forged.data, own.data);
       const details = await api(`groups/${groupId}`, { cookie: member.cookie });
-      assert.equal(details.data.role, 'member'); assert.deepEqual(details.data.match, own.data.match);
+      assert.equal(details.data.role, 'member'); assert.equal(details.data.match, null, 'Group views do not refetch a private result before reveal');
+      const pool = getPool(), originalQuery = pool.query;
+      let groupReads = 0;
+      pool.query = function (...args) { groupReads++; return originalQuery.apply(this, args); };
+      try { await getGroup(member, groupId); } finally { pool.query = originalQuery; }
+      assert.equal(groupReads, 2, 'An ordinary member view uses only the authorized group and participant queries');
       assert(!('results' in details.data) && !('assignments' in details.data));
       assert.equal((await api(`groups/${groupId}/result`, { cookie: outsider.cookie })).status, 404);
       assert.equal((await api(`invitations/${tokens[2]}/accept`, { method: 'POST', cookie: outsider.cookie, body: {} })).data.error.code, 'INVITATION_CLOSED');
