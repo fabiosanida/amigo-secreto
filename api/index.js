@@ -5,6 +5,8 @@ import { acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, get
 import { updateProfile } from '../lib/profile.js';
 import { adminGroup, adminGroups, adminOverview, adminUser, adminUsers } from '../lib/admin.js';
 import { requireAdmin } from '../lib/admin-access.js';
+import { adminDeleteGroup, adminDeleteUser, adminGroupDeletePreview, adminUserDeletePreview } from '../lib/admin-delete.js';
+import { checkMarmelada, marmeladaGroup, marmeladaGroups } from '../lib/admin-marmelada.js';
 
 const MAX_BODY = 400000;
 export function verifyCron(req) {
@@ -88,6 +90,17 @@ export default async function handler(req, res) {
       if (method === 'GET' && path === 'admin/overview') return send(res, 200, await adminOverview(user));
       if (method === 'GET' && path === 'admin/groups') return send(res, 200, await adminGroups(user, filters));
       if (method === 'GET' && path === 'admin/users') return send(res, 200, await adminUsers(user, filters));
+      if (method === 'GET' && path === 'admin/marmelada/groups') return send(res, 200, await marmeladaGroups(user, filters));
+      if (method === 'GET' && parts.length === 4 && parts[1] === 'marmelada' && parts[2] === 'groups') return send(res, 200, await marmeladaGroup(user, parts[3]));
+      if (method === 'POST' && path === 'admin/marmelada/check') return send(res, 200, await checkMarmelada(user, body));
+      if (method === 'GET' && parts.length === 4 && parts[3] === 'delete-preview') {
+        if (parts[1] === 'groups') return send(res, 200, await adminGroupDeletePreview(user, parts[2]));
+        if (parts[1] === 'users') return send(res, 200, await adminUserDeletePreview(user, parts[2]));
+      }
+      if (method === 'POST' && parts.length === 4 && parts[3] === 'delete') {
+        if (parts[1] === 'groups') return send(res, 200, await adminDeleteGroup(user, parts[2], body));
+        if (parts[1] === 'users') return send(res, 200, await adminDeleteUser(user, parts[2], body));
+      }
       if (method === 'GET' && parts.length === 3 && parts[1] === 'groups') return send(res, 200, await adminGroup(user, parts[2]));
       if (method === 'GET' && parts.length === 3 && parts[1] === 'users') return send(res, 200, await adminUser(user, parts[2], filters));
     }

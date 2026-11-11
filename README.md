@@ -6,7 +6,11 @@ Cadastro com nome, sobrenome, e-mail e senha; acesso por e-mail e senha; foto co
 
 O criador pode apagar seu grupo após digitar o nome dele na confirmação. A exclusão é permanente e remove participações, convites, resultados e notificações relacionadas, preservando as contas dos usuários. Se um envio estiver em andamento, a API pede para aguardar antes de tentar novamente.
 
-A área `#admin` é exclusiva da conta verificada `fabiosanida@gmail.com`. A autorização é conferida na API pela identidade da sessão, além de controlar a navegação. Ela permite consultar todos os grupos, seus criadores, participantes e resultados, além das contas e seus grupos criados e participações. Essa permissão de consulta não dá direito de apagar grupos de outro criador. Listas e históricos são paginados; detalhes são carregados sob demanda, sem atualização automática. Dados administrativos não são persistidos no armazenamento do navegador.
+A área `#admin` é exclusiva da conta verificada `fabiosanida@gmail.com`. A autorização é conferida na API pela identidade da sessão, além de controlar a navegação. Ela permite consultar todos os grupos, seus criadores, participantes e resultados, além das contas e seus grupos criados e participações. O administrador também pode apagar qualquer grupo ou excluir usuários após revisar o impacto e digitar o nome do grupo ou e-mail da conta. A própria conta administrativa fica protegida contra exclusão. Listas e históricos são paginados; detalhes são carregados sob demanda, sem atualização automática. Dados administrativos não são persistidos no armazenamento do navegador.
+
+Ao excluir um usuário, seus grupos são apagados e suas participações nos outros grupos ainda não sorteados são removidas. Nos sorteios de outras pessoas já realizados, uma identidade anonimizada preserva os pares originais; nome, e-mail, foto, senha e credenciais de acesso da conta excluída são removidos. Sessões e autorizações pendentes são revogadas. Um novo cadastro com o mesmo e-mail recebe uma nova identidade e não herda as participações antigas. A confirmação informa essas consequências antes da exclusão.
+
+A página `#admin-marmelada` também é exclusiva do administrador. Ela permite selecionar um grupo sorteado, quem está anunciando seu amigo secreto e o nome anunciado. A API compara essa escolha com o sorteio original: o acerto abre uma apresentação verde com balões e confetes; a divergência abre a brincadeira “É MARMELADA!”. A apresentação oferece tela cheia, saída por Esc e uma nova conferência, com animações reduzidas para quem usa essa preferência. Uma resposta incorreta não revela o destinatário real. A conferência não modifica sorteios nem envia notificações.
 
 A criação de grupo usa um calendário próprio, com navegação por teclado e bloqueio de datas passadas. O valor do presente é um campo textual com decimal pt-BR, sem controles de incremento, e deve ficar entre R$ 1,00 e R$ 100.000,00; o mesmo mínimo é validado pela API e pelo banco.
 
@@ -28,6 +32,7 @@ A aplicação local fica em `http://127.0.0.1:4174`. Os layouts de revisão est�
 - `prototype/live.js`: aplicação de produção, navegação e chamadas à API.
 - `prototype/auth.js`, `groups.js`, `profile.js`: telas e recorte de foto.
 - `prototype/admin.js` e `admin.css`: área administrativa privada.
+- `prototype/marmelada.js` e `marmelada.css`: conferência e apresentação dos nomes anunciados.
 - `prototype/group-fields.js` e `group-fields.css`: calendário acessível e entrada de orçamento.
 - `api/index.js`: API Node.js na Vercel.
 - `lib/`: autenticação, Postgres, grupos, perfis e e-mails HTML.
@@ -49,7 +54,7 @@ npm test
 RUN_DB_TESTS=1 node --env-file=.env.local --test tests/integration.test.mjs tests/password-integration.test.mjs
 ```
 
-A integração usa o banco configurado, cria dados temporários identificados e os remove ao concluir. Os envios são interceptados pelo teste: nenhuma mensagem é enviada a endereços fictícios. A suíte cobre código de uso único, expiração, concorrência, autorização, aceite, sorteio, privacidade do resultado e repetição idempotente de notificações. A suíte adicional `tests/admin-integration.test.mjs` exige um schema isolado cujo nome comece com `as_test_`, com as migrações aplicadas e o `search_path` configurado na conexão. Ela testa permissões administrativas, paginação, consulta de resultados e exclusão confirmada com remoção dos registros relacionados, sem tocar na conta administrativa real.
+A integração usa o banco configurado, cria dados temporários identificados e os remove ao concluir. Os envios são interceptados pelo teste: nenhuma mensagem é enviada a endereços fictícios. A suíte cobre código de uso único, expiração, concorrência, autorização, aceite, sorteio, privacidade do resultado e repetição idempotente de notificações. A suíte adicional `tests/admin-integration.test.mjs` exige um schema isolado cujo nome comece com `as_test_`, com as migrações aplicadas e o `search_path` configurado na conexão. Ela testa permissões administrativas, paginação, consulta de resultados, exclusão confirmada de grupos e contas, anonimização dos sorteios preservados, revogação de acesso e conferência Marmelada sem alteração dos pares, sem tocar na conta administrativa real.
 
 ## Publicar
 

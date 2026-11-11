@@ -4,7 +4,8 @@ import { setupOTP } from './otp.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from './ui.js';
 import { renderAuth, AUTH_ROUTES } from './auth.js';
 import { renderGroups, GROUP_ROUTES } from './groups.js';
-import { renderAdmin, ADMIN_ROUTES } from './admin.js';
+import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from './admin.js';
+import { showMarmeladaResult } from './marmelada.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
 
 const INVITE_KEY = 'amigo-secreto:invitation';
@@ -19,6 +20,7 @@ function readChallenge() {
 const storedChallenge = readChallenge();
 const state = {
   production: true, user: null, groups: [], group: null, participants: [],
+  marmeladaData: null, marmeladaSearch: '',
   adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
   role: 'member', organizerEmail: '', drawn: false, revealed: false, match: null,
   invitation: null, inviteToken: storage.get(INVITE_KEY) || '',
@@ -34,7 +36,7 @@ let route = 'welcome', params = new URLSearchParams(), version = 0, toastTimer;
 let busyDraw = false, sessionLoaded = false;
 let pendingMagicVerification = null;
 const pendingActions = new Set();
-const titles = { admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
+const titles = { 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
 
 class ApiError extends Error {
   constructor(code, message, status, payload) { super(message); this.code = code; this.status = status; this.payload = payload; }
@@ -167,6 +169,9 @@ function setInvitationToken(token) {
   storage.set(INVITE_KEY, token || null);
 }
 function clearAdmin() {
+  state.marmeladaData = null; state.marmeladaSearch = '';
+  document.querySelector('#marmelada-result-dialog')?.close();
+  document.querySelector('#admin-delete-dialog')?.close();
   state.adminOverview = null; state.adminData = null; state.adminTab = 'groups'; state.adminSearch = ''; state.adminCreatedPage = 1; state.adminParticipatingPage = 1;
 }
 function clearPrivateState() {
@@ -230,7 +235,7 @@ async function navigate(next, options = {}) {
   if (location.hash !== destination) history[options.replace ? 'replaceState' : 'pushState'](null, '', destination);
   document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
   if (options.skipLoad) { render(); return; }
-  if (ADMIN_ROUTES.includes(route)) state.adminData = null;
+  if (ADMIN_ROUTES.includes(route)) { state.adminData = null; state.marmeladaData = null; }
   loading();
   try {
     if (route === 'verify-link') {
@@ -244,7 +249,14 @@ async function navigate(next, options = {}) {
     if (ADMIN_ROUTES.includes(route)) {
       if (!state.user?.isAdmin) { clearAdmin(); await navigate('dashboard', { replace: true }); return; }
       const page = key => String(Math.min(10000, Math.max(1, Math.floor(Number(params.get(key)) || 1))));
-      if (route === 'admin') {
+      if (route === 'admin-marmelada') {
+        state.marmeladaSearch = (params.get('search') || '').trim().slice(0, 100);
+        const id = params.get('id');
+        const query = new URLSearchParams({ page: page('page'), limit: '25', search: state.marmeladaSearch });
+        const data = await api(id ? `/admin/marmelada/groups/${segment(id)}` : `/admin/marmelada/groups?${query}`);
+        if (navigation !== version || !state.user?.isAdmin) return;
+        state.marmeladaData = data;
+      } else if (route === 'admin') {
         state.adminTab = params.get('tab') === 'users' ? 'users' : 'groups';
         state.adminSearch = (params.get('search') || '').trim().slice(0, 100);
         const query = new URLSearchParams({ page: page('page'), limit: '25', search: state.adminSearch });
@@ -343,7 +355,17 @@ async function submit(event) {
   const type = form.dataset.form;
   lockForm(form, true);
   try {
-    if (type === 'admin-search') {
+    if (type === 'marmelada-search') {
+      if (!state.user?.isAdmin) return;
+      await navigate(`admin-marmelada?${new URLSearchParams({ search: value('search'), page: '1' })}`);
+    } else if (type === 'marmelada-check') {
+      if (!state.user?.isAdmin || !state.marmeladaData?.group?.id) return;
+      const navigation = version, userId = state.user.id;
+      const result = await post('/admin/marmelada/check', { groupId: state.marmeladaData.group.id, giverId: value('giverId'), receiverId: value('receiverId') });
+      if (navigation !== version || state.user?.id !== userId || !state.user?.isAdmin) return;
+      if (typeof result.matches !== 'boolean') throw new ApiError('INVALID_RESPONSE', 'Não foi possível conferir este resultado. Tente novamente.');
+      showMarmeladaResult(result);
+    } else if (type === 'admin-search') {
       if (!state.user?.isAdmin) return;
       await navigate(`admin?${new URLSearchParams({ tab: state.adminTab, search: value('search'), page: '1' })}`);
     } else if (type === 'register') {
@@ -414,6 +436,44 @@ function updateCountdown() {
   document.querySelectorAll('[data-action="resend-code"]').forEach(element => { element.disabled = seconds > 0 || pendingActions.has('resend-code'); });
   if (['verify', 'verify-error'].includes(route) && state.challenge?.expiresAt && Date.now() >= state.challenge.expiresAt && !pendingActions.has('resend-code')) void navigate('verify-expired', { replace: true });
 }
+async function showAdminDelete(kind) {
+  if (!state.user?.isAdmin) return;
+  const subject = kind === 'user' ? state.adminData?.user : state.adminData?.group;
+  if (!subject?.id) return;
+  const navigation = version, adminId = state.user.id, id = subject.id;
+  const endpoint = `/admin/${kind === 'user' ? 'users' : 'groups'}/${segment(id)}`;
+  const preview = await api(`${endpoint}/delete-preview`);
+  if (navigation !== version || !state.user?.isAdmin || state.user.id !== adminId) return;
+  const dialog = document.querySelector('#admin-delete-dialog');
+  if (!dialog) return;
+  dialog.innerHTML = renderAdminDeletePreview(kind, preview);
+  const form = dialog.querySelector('form'), input = form.elements.confirmation, button = form.querySelector('button[type="submit"]');
+  if (preview.canDelete !== false && input && button) {
+    const expected = kind === 'user' ? preview.user.email : preview.group.name;
+    input.addEventListener('input', () => { button.disabled = input.value !== expected; });
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!state.user?.isAdmin || state.user.id !== adminId || form.getAttribute('aria-busy') === 'true' || input.value !== expected || !form.reportValidity()) return;
+      form.setAttribute('aria-busy', 'true');
+      form.querySelectorAll('button,input').forEach(element => { element.disabled = true; }); button.textContent = 'Apagando…';
+      try {
+        await post(`${endpoint}/delete`, { confirmation: input.value });
+        clearPrivateState();
+        dialog.close(); dialog.replaceChildren();
+        await navigate(kind === 'user' ? 'admin?tab=users' : 'admin?tab=groups', { replace: true });
+        toast(kind === 'user' ? 'Conta apagada. Os grupos e participações foram atualizados.' : 'Amigo secreto apagado.');
+      } catch (error) {
+        if (error.status === 401) { state.user = null; clearPrivateState(); dialog.close(); await navigate('login'); toast(errorMessage(error)); }
+        else if (error.status === 403) { clearAdmin(); dialog.close(); toast(errorMessage(error)); await navigate('dashboard'); }
+        else formError(form, error.code === 'NOTIFICATIONS_IN_PROGRESS' ? 'Há notificações em envio para os grupos envolvidos. Aguarde o envio terminar e tente novamente.' : errorMessage(error));
+      } finally {
+        if (form.isConnected) { form.setAttribute('aria-busy', 'false'); form.querySelectorAll('button,input').forEach(element => { element.disabled = false; }); button.textContent = 'Apagar definitivamente'; button.disabled = input.value !== expected; }
+      }
+    });
+  }
+  dialog.oncancel = event => { if (form.getAttribute('aria-busy') === 'true') event.preventDefault(); };
+  dialog.showModal();
+}
 function showDeleteGroup() {
   if (state.role !== 'organizer' || !state.group?.id) return;
   const group = { id: state.group.id, name: state.group.name };
@@ -463,6 +523,8 @@ async function action(name, target) {
   switch (name) {
     case 'help': showHelp(); break;
     case 'delete-group': showDeleteGroup(); break;
+    case 'admin-delete-group': await showAdminDelete('group'); break;
+    case 'admin-delete-user': await showAdminDelete('user'); break;
     case 'refresh-admin': if (state.user?.isAdmin) { state.adminOverview = null; await navigate(href(route, params).slice(1), { replace: true }); } break;
     case 'close-dialog': { const dialog = target.closest('dialog'); if (dialog?.querySelector('[aria-busy="true"]')) break; dialog?.close(); break; }
     case 'retry-route': if (!sessionLoaded) await start(); else await navigate(href(route, params).slice(1), { replace: true }); break;
@@ -530,7 +592,7 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['help', 'delete-group', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'run-draw', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'run-draw', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }

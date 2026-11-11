@@ -4,13 +4,13 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { renderAuth, AUTH_ROUTES } from '../prototype/auth.js';
 import { renderGroups, GROUP_ROUTES } from '../prototype/groups.js';
-import { renderAdmin, ADMIN_ROUTES } from '../prototype/admin.js';
+import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from '../prototype/admin.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from '../prototype/ui.js';
 
 const source = readFileSync(new URL('../prototype/live.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {}) {
-  const requests = [], listeners = {}, app = { innerHTML: '' }, location = { hash };
+  const requests = [], presentations = [], listeners = {}, app = { innerHTML: '' }, location = { hash };
   const storage = new Map(stored);
   const noop = () => {};
   const context = {
@@ -21,7 +21,8 @@ function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {})
     history: { pushState(a, b, hash) { location.hash = hash; }, replaceState(a, b, hash) { location.hash = hash; } },
     document: { body: { dataset: {}, style: {} }, querySelector: selector => selector === '#app' ? app : selectors[selector] || null, querySelectorAll: () => [], addEventListener: noop },
     window: { scrollTo: noop, addEventListener(type, listener) { listeners[type] = listener; } },
-    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderAdmin, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
+    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
+    showMarmeladaResult: result => { presentations.push(result); },
     setupInviteFields: noop, setInviteFieldsBusy: noop, setupGroupFields: noop, parseBudget: Number, setupOTP: noop,
     openProfileEditor: noop, setupPhotoInputs: noop, getSignupAvatar: () => null, resetSignupAvatar: noop,
     fetch(path, options) {
@@ -31,7 +32,7 @@ function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {})
   };
   vm.createContext(context);
   vm.runInContext(`${source}\nglobalThis.navigationTest = { navigate, state, action, submit };`, context);
-  return { requests, location, app, storage, ...context.navigationTest,
+  return { requests, presentations, location, app, storage, ...context.navigationTest,
     pairedHistory(hash) { location.hash = hash; listeners.popstate(); listeners.hashchange(); },
     verifyRequests() { return requests.filter(request => request.path === '/api/auth/verify'); },
   };
@@ -180,7 +181,7 @@ const emptyAdminSummary = { summary: { groups: 0, drawnGroups: 0, users: 0, part
 const emptyAdminList = { groups: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 1 } };
 
 test('private routes never request admin data or expose navigation for a regular account', async () => {
-  for (const route of ['admin', 'admin-group?id=private-group', 'admin-user?id=private-user']) {
+  for (const route of ['admin', 'admin-group?id=private-group', 'admin-user?id=private-user', 'admin-marmelada', 'admin-marmelada?id=private-group']) {
     const h = harness({ hash: `#${route}` });
     h.requests[0].respond({ user: signedInUser }); await tick();
     assert.equal(h.requests.filter(request => request.path.startsWith('/api/admin')).length, 0);
@@ -271,4 +272,71 @@ test('deletion requires the exact group name, posts once and clears stale result
   assert.equal(h.state.group, null); assert.equal(h.state.match, null); assert.equal(h.state.adminData, null); assert.equal(h.state.adminOverview, null);
   h.requests.find(request => request.path === '/api/groups').respond({ groups: [] }); await deleting;
   assert.equal(h.location.hash, '#dashboard'); assert(!fixture.dialog.open);
+});
+
+test('Marmelada loads only the selected draw and presents the server verdict without storing results', async () => {
+  const h = harness({ hash: '#admin-marmelada?id=drawn-group' });
+  h.requests[0].respond({ user: administrator }); await tick();
+  const selection = h.requests.find(request => request.path === '/api/admin/marmelada/groups/drawn-group'); assert(selection);
+  assert.equal(h.requests.length, 2, 'Opening the game does not fetch the admin overview or other draws');
+  selection.respond({ group: { id: 'drawn-group', name: 'Private event' }, participants: [{ id: 'giver', name: 'Ana' }, { id: 'receiver', name: 'Bruno' }] }); await tick();
+  assert(h.app.innerHTML.includes('Quem vai revelar?')); assert(h.app.innerHTML.includes('Private event'));
+  assert.equal(h.presentations.length, 0);
+  const checking = h.submit({ preventDefault() {}, currentTarget: fixtureForm('marmelada-check', { giverId: 'giver', receiverId: 'receiver' }) });
+  const request = h.requests.find(request => request.path === '/api/admin/marmelada/check'); assert(request);
+  assert.deepEqual(request.body, { groupId: 'drawn-group', giverId: 'giver', receiverId: 'receiver' });
+  request.respond({ matches: false, giver: { id: 'giver', name: 'Ana' }, receiver: { id: 'receiver', name: 'Bruno' }, group: { id: 'drawn-group', name: 'Private event' } });
+  await checking;
+  assert.equal(h.presentations.length, 1); assert.equal(h.presentations[0].matches, false);
+  assert.equal(h.storage.size, 0); assert.equal(h.state.marmeladaData.results, undefined);
+  assert.equal(h.requests.filter(request => request.path.endsWith('/draw')).length, 0, 'Checking a declaration cannot trigger another draw');
+});
+
+test('Marmelada ignores an answer received after logout and clears its private state', async () => {
+  const h = harness({ hash: '#admin-marmelada?id=drawn-group' });
+  h.requests[0].respond({ user: administrator }); await tick();
+  h.requests.find(request => request.path === '/api/admin/marmelada/groups/drawn-group').respond({ group: { id: 'drawn-group', name: 'Private event' }, participants: [] }); await tick();
+  const checking = h.submit({ preventDefault() {}, currentTarget: fixtureForm('marmelada-check', { giverId: 'giver', receiverId: 'receiver' }) });
+  const answer = h.requests.find(request => request.path === '/api/admin/marmelada/check');
+  const leaving = h.action('logout', {}); h.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leaving;
+  answer.respond({ matches: true, group: { name: 'Private event' }, giver: { name: 'Ana' }, receiver: { name: 'Bruno' } }); await checking;
+  assert.equal(h.presentations.length, 0); assert.equal(h.state.marmeladaData, null); assert.equal(h.state.user, null);
+  assert(!h.app.innerHTML.includes('Private event'));
+});
+
+test('administrative deletion previews the impact before asking for confirmation and cancellation sends no mutation', async () => {
+  const fixture = deletionDialogFixture(), h = harness({ selectors: { '#admin-delete-dialog': fixture.dialog } });
+  h.requests[0].respond({ user: null }); await tick();
+  h.state.user = signedInUser; h.state.adminData = { group: invitedGroup };
+  await h.action('admin-delete-group', {}); assert.equal(h.requests.length, 1, 'A regular account cannot request deletion previews');
+  h.state.user = administrator;
+  const opening = h.action('admin-delete-group', {});
+  const preview = h.requests.find(request => request.path === `/api/admin/groups/${invitedGroup.id}/delete-preview`); assert(preview);
+  assert.equal(fixture.dialog.open, false, 'Confirmation waits for concrete server effects');
+  preview.respond({ group: invitedGroup, canDelete: true, effects: { groupsDeleted: 1, membershipsDeleted: 6, resultsDeleted: 6, notificationsDeleted: 4 } }); await opening;
+  assert(fixture.dialog.open); assert(fixture.button.disabled); assert(fixture.dialog.innerHTML.includes('Pares do sorteio que serão apagados'));
+  await h.action('close-dialog', { closest: () => fixture.dialog }); assert.equal(fixture.dialog.open, false);
+  assert.equal(h.requests.filter(request => request.path.endsWith('/delete')).length, 0);
+});
+
+test('administrative user deletion requires the exact email, submits once and clears all private caches', async () => {
+  const fixture = deletionDialogFixture(), h = harness({ selectors: { '#admin-delete-dialog': fixture.dialog } });
+  h.requests[0].respond({ user: null }); await tick();
+  const target = { id: 'delete-user', name: 'Another person', email: 'another@example.test' };
+  h.state.user = administrator; h.state.adminData = { user: target }; h.state.marmeladaData = { group: { name: 'Private draw' } }; h.state.match = { name: 'Secret match' };
+  const opening = h.action('admin-delete-user', {});
+  h.requests.find(request => request.path === '/api/admin/users/delete-user/delete-preview').respond({ user: target, canDelete: true, effects: { groupsDeleted: 2, membershipsRemoved: 3, drawnParticipationsAnonymized: 1, notificationsDeleted: 5 } }); await opening;
+  assert(fixture.dialog.innerHTML.includes('participação ficará anônima'));
+  fixture.input.value = target.email + ' '; fixture.listeners.input(); assert(fixture.button.disabled);
+  await fixture.listeners.submit({ preventDefault() {} }); assert.equal(h.requests.filter(request => request.path.endsWith('/delete')).length, 0);
+  fixture.input.value = target.email; fixture.listeners.input(); assert(!fixture.button.disabled);
+  const deleting = fixture.listeners.submit({ preventDefault() {} });
+  await fixture.listeners.submit({ preventDefault() {} });
+  const mutations = h.requests.filter(request => request.path.endsWith('/delete')); assert.equal(mutations.length, 1);
+  assert.equal(mutations[0].path, '/api/admin/users/delete-user/delete'); assert.equal(mutations[0].body.confirmation, target.email);
+  mutations[0].respond({ ok: true, deletedId: target.id }); await tick();
+  assert.equal(h.state.adminData, null); assert.equal(h.state.marmeladaData, null); assert.equal(h.state.match, null);
+  h.requests.find(request => request.path === '/api/admin/overview').respond(emptyAdminSummary);
+  h.requests.find(request => request.path.startsWith('/api/admin/users?')).respond({ users: [], pagination: emptyAdminList.pagination }); await deleting;
+  assert.equal(h.location.hash, '#admin?tab=users'); assert.equal(fixture.dialog.open, false);
 });
