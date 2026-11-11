@@ -1,0 +1,20 @@
+{
+  "name": "amigo-secreto",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node --env-file=.env.local scripts/dev.mjs",
+    "migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@vercel/functions": "3.11.1",
+    "pg": "8.23.1",
+    "sharp": "0.35.5"
+  }
+}

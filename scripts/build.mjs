@@ -1,0 +1,14 @@
+import {readFile,writeFile,mkdir,copyFile,cp,rm} from 'node:fs/promises';
+const root=new URL('../',import.meta.url);
+await rm(new URL('public/',root),{recursive:true,force:true});
+await mkdir(new URL('public/',root),{recursive:true});
+const files=['ui.js','auth.js','groups.js','styles.css','auth.css','groups.css','profile.js','profile.css'];
+for(const file of files)await copyFile(new URL('prototype/'+file,root),new URL('public/'+file,root));
+await copyFile(new URL('prototype/live.js',root),new URL('public/app.js',root));
+await cp(new URL('prototype/assets/',root),new URL('public/assets/',root),{recursive:true});
+let html=await readFile(new URL('prototype/index.html',root),'utf8');
+html=html.replace(/\s*<link rel="stylesheet" href="\.\/(?:emails|brand)\.css">/g,'').replace('</head>','<link rel="stylesheet" href="./profile.css">\n<style>body{padding-bottom:0}</style>\n</head>');
+html=html.replace(/\s*<div id="review-tools"><\/div>/,'').replace(/\s*<dialog id="screen-picker"[^>]*><\/dialog>/,'');
+html=html.replace('Prévia visual do Amigo Secreto:','Amigo Secreto:');
+await writeFile(new URL('public/index.html',root),html);
+console.log('Aplicação pronta em public/. Apenas arquivos públicos foram incluídos.');

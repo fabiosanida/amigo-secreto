@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.vercel/
+public/
+prototype/review/*.jpg
+prototype/amigo-secreto-layouts.html
+*.log
+.DS_Store

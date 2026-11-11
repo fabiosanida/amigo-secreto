@@ -1,0 +1,34 @@
+{
+  "phase": "Protótipo visual para aprovação",
+  "brand": "Amigo Secreto",
+  "screenCount": 26,
+  "entry": "http://127.0.0.1:4173/",
+  "portableFile": "../amigo-secreto-layouts.html",
+  "reviewNavigation": "Botão Todas as telas na barra inferior",
+  "demoCode": "123456",
+  "integrations": "Dados demonstrativos em memória do navegador; sem conexão com banco e sem envio real de e-mails.",
+  "requirements": [
+    "Entrada compacta e responsiva, sem rolagem em telas comuns de desktop e celular",
+    "Cadastro com nome, sobrenome e e-mail obrigatórios",
+    "Validação por código e alternativa de link no e-mail",
+    "Acesso sem senha por código de e-mail",
+    "Estado vazio para nova conta",
+    "Criar grupo com nome, data, valor sugerido, local e recado",
+    "Convidar lista de e-mails com validação e deduplicação",
+    "Preservar contexto do grupo durante cadastro e acesso pelo convite",
+    "Convite para conta existente ou nova, aceite, expirado e grupo fechado",
+    "Organizador acompanha enviado, entregue, abertura estimada, aceito e falha",
+    "Sortear somente os confirmados, mesmo com convites pendentes",
+    "Mínimo de 3 participantes; ciclo único sem autoatribuição ou pares recíprocos",
+    "Confirmação antes do sorteio, andamento, conclusão e resultado individual",
+    "E-mails com identidade visual: validação, convite e resultado"
+  ],
+  "implementationAfterApproval": [
+    "Autenticação, tokens de convite e sessões no servidor",
+    "Banco Neon com segregação de acesso e migrações",
+    "Integração com a API de notificações fornecida",
+    "Confirmar suporte a HTML, eventos de entrega e abertura na API",
+    "Sorteio transacional, aleatoriedade segura e notificações idempotentes",
+    "Controle de acesso para cada participante consultar apenas seu resultado"
+  ]
+}

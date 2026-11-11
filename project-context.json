@@ -1,0 +1,41 @@
+{
+  "project": "amigo-secreto",
+  "savedOn": "2026-11-10",
+  "repository": "https://github.com/fabiosanida/amigo-secreto.git",
+  "siteUrl": "https://amigosecreto.sanida.me/",
+  "hosting": {
+    "provider": "Vercel",
+    "team": "sanida",
+    "project": "amigo-secreto",
+    "sourceBranch": "main",
+    "domainShownInScreenshot": "https://amigo-secreto-brown-seven.vercel.app",
+    "source": "Vercel: projeto e domínio verificados; variáveis configuradas para produção."
+  },
+  "database": {
+    "provider": "Neon Postgres",
+    "databaseName": "neondb",
+    "regionFromHostname": "us-east-1",
+    "localSecretsFile": ".env.local",
+    "connectionVariable": "DATABASE_URL",
+    "directConnectionVariable": "DATABASE_URL_UNPOOLED",
+    "status": "Conexão verificada, migrações aplicadas e testes de integração executados."
+  },
+  "notifications": {
+    "apiUrl": "https://notifications.sanida.me",
+    "emailEndpoint": "/api/v1/emails",
+    "method": "POST",
+    "authorization": "Bearer <NOTIFICATIONS_API_KEY>",
+    "contentType": "application/json",
+    "bodyFields": [
+      "to",
+      "subject",
+      "text",
+      "html",
+      "idempotencyKey"
+    ],
+    "localSecretsFile": ".env.local",
+    "exampleFile": "examples/send-email.ts",
+    "status": "Envio real e entrega confirmados; credenciais configuradas na Vercel.",
+    "receiptEndpoint": "/api/v1/emails/:id"
+  }
+}

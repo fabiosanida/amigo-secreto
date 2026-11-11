@@ -1,0 +1,30 @@
+import { icon, brand } from './ui.js';
+
+const swatches = [
+  ['Verde encontro', '#203D35', 'A base que acolhe.', 'brand-swatch-ink'],
+  ['Coral surpresa', '#EE775B', 'Um toque de alegria.', 'brand-swatch-coral'],
+  ['Creme abraço', '#FAF8F2', 'Espaço para respirar.', 'brand-swatch-paper'],
+  ['Sálvia carinho', '#E7EDE2', 'Calma nos detalhes.', 'brand-swatch-sage'],
+];
+
+function ribbon() {
+  return `<svg class="brand-ribbon" viewBox="0 0 240 240" fill="none" aria-hidden="true"><rect x="50" y="105" width="140" height="108" rx="11" fill="#FAF8F2"/><rect x="42" y="86" width="156" height="40" rx="8" fill="#E7EDE2"/><path d="M108 86H132V213H108V86Z" fill="#EE775B"/><path d="M120 86C113 42 70 27 65 51C61 73 91 87 120 86ZM120 86C127 42 170 27 175 51C179 73 149 87 120 86Z" fill="#EE775B" stroke="#203D35" stroke-width="4" stroke-linejoin="round"/><path d="M30 38L33 48L43 51L33 54L30 64L27 54L17 51L27 48L30 38Z" fill="#EE775B"/><path d="M211 145L214 152L221 155L214 158L211 165L208 158L201 155L208 152L211 145Z" fill="#E7EDE2"/><path d="M201 51L206 42M24 145L17 150" stroke="#E7EDE2" stroke-width="3" stroke-linecap="round"/><circle cx="200" cy="97" r="3" fill="#EE775B"/></svg>`;
+}
+
+export function renderBrand(route) {
+  if (route !== 'brand') return null;
+  return `<div class="brand-page">
+    <div class="brand-page-heading"><div><p class="eyebrow">NOSSA IDENTIDADE</p><h1>Gente querida.<br><em>Boas surpresas.</em></h1><p>Uma marca para celebrar os laços que já existem<br class="brand-desktop-break"> e criar espaço para novos encontros.</p></div><span class="brand-review-tag">${icon('sparkles')} O jeito Amigo Secreto</span></div>
+
+    <section class="brand-story" aria-label="Conceito da marca"><div class="brand-story-copy"><span class="brand-section-number">01 / A IDEIA</span><h2>O presente é só<br>o começo.</h2><p>O que a gente troca de verdade é carinho. Por isso, nossa marca junta a forma de um presente com o movimento de um laço: um convite para se aproximar.</p><div class="brand-story-tags"><span>${icon('gift')} Surpresa</span><span>${icon('heart')} Afeto</span><span>${icon('users')} Encontro</span></div></div><div class="brand-story-illustration">${ribbon()}<span>Pequenos gestos.<br>Grandes conexões.</span></div></section>
+
+    <section class="brand-section" aria-labelledby="brand-logo-title"><div class="brand-section-heading"><div><span class="brand-section-number">02 / A MARCA</span><h2 id="brand-logo-title">Simples de reconhecer. Fácil de gostar.</h2></div><p>Presente + laço + gente perto.</p></div><div class="brand-logo-grid"><div class="brand-logo-card brand-logo-light"><div class="brand-logo-lockup">${brand()}</div><span>VERSÃO PRINCIPAL · FUNDO CLARO</span></div><div class="brand-logo-card brand-logo-dark"><div class="brand-logo-lockup">${brand(true)}</div><span>VERSÃO INVERSA · FUNDO VERDE</span></div></div></section>
+
+    <section class="brand-section" aria-labelledby="brand-color-title"><div class="brand-section-heading"><div><span class="brand-section-number">03 / AS CORES</span><h2 id="brand-color-title">Uma paleta com calor humano.</h2></div><p>Natureza, papel e um pouquinho de festa.</p></div><div class="brand-palette">${swatches.map(([name, hex, description, className]) => `<div class="brand-color-card"><div class="brand-color-swatch ${className}"><span>${hex}</span>${icon('sparkles')}</div><div class="brand-color-description"><h3>${name}</h3><p>${description}</p></div></div>`).join('')}</div></section>
+
+    <section class="brand-section" aria-labelledby="brand-type-title"><div class="brand-section-heading"><div><span class="brand-section-number">04 / AS LETRAS</span><h2 id="brand-type-title">Personalidade na medida certa.</h2></div></div><div class="brand-type-grid"><article class="brand-type-card brand-type-editorial"><div class="brand-type-meta"><span>TÍTULOS & MOMENTOS ESPECIAIS</span><strong>Fraunces</strong></div><span class="brand-type-specimen">Aa</span><p>O melhor presente<br>é estar perto.</p><div class="brand-type-alphabet">Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk</div></article><article class="brand-type-card brand-type-interface"><div class="brand-type-meta"><span>TEXTOS & INTERFACE</span><strong>DM Sans</strong></div><span class="brand-type-specimen">Aa</span><p>Clareza para organizar.<br>Leveza para aproveitar.</p><div class="brand-type-alphabet">Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk · 1234567890</div></article></div></section>
+
+    <section class="brand-section brand-last-section" aria-labelledby="brand-voice-title"><div class="brand-section-heading"><div><span class="brand-section-number">05 / O NOSSO JEITO</span><h2 id="brand-voice-title">Como um convite de alguém querido.</h2></div><p>Próximo, claro e com uma boa dose de carinho.</p></div><div class="brand-voice-grid"><article class="brand-voice-card"><span class="brand-voice-icon">${icon('heart')}</span><h3>Gente de verdade.</h3><p>“Sua turma, um sorteio e muitas boas surpresas.”</p><span>FALAMOS COM PROXIMIDADE</span></article><article class="brand-voice-card"><span class="brand-voice-icon">${icon('lock')}</span><h3>Segredo bem guardado.</h3><p>“Só você sabe quem tirou. Pode confiar.”</p><span>TRANSMITIMOS TRANQUILIDADE</span></article><article class="brand-voice-card"><span class="brand-voice-icon">${icon('sparkles')}</span><h3>Alegria nos detalhes.</h3><p>“Tudo pronto. Agora deixa a surpresa acontecer.”</p><span>CELEBRAMOS CADA PASSO</span></article></div><div class="brand-actions-sample"><div><span class="brand-section-number">DO CONVITE AO CLIQUE</span><p>Até os botões dão vontade de chegar perto.</p></div><div class="brand-buttons"><a class="btn btn-primary" href="#/register" data-route="register">Criar uma boa surpresa ${icon('arrow-right')}</a><a class="btn btn-secondary" href="#/dashboard" data-route="dashboard">Conhecer minha turma</a></div></div></section>
+    <footer class="brand-page-footer">${icon('gift')}<p>Amigo Secreto. <span>Feito para aproximar.</span></p><a href="#/email-verify" data-route="email-verify">Ver a marca nos emails ${icon('arrow-right')}</a></footer>
+  </div>`;
+}

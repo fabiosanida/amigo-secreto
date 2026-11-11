@@ -1,0 +1,6 @@
+{
+  "name": "amigo-secreto-layouts",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "node server.mjs" }
+}
