@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { renderAuth, AUTH_ROUTES } from '../prototype/auth.js';
 import { renderGroups, GROUP_ROUTES } from '../prototype/groups.js';
+import { renderDependents, DEPENDENT_ROUTES } from '../prototype/dependents.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from '../prototype/admin.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from '../prototype/ui.js';
 
@@ -21,7 +22,7 @@ function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {})
     history: { pushState(a, b, hash) { location.hash = hash; }, replaceState(a, b, hash) { location.hash = hash; } },
     document: { body: { dataset: {}, style: {} }, querySelector: selector => selector === '#app' ? app : selectors[selector] || null, querySelectorAll: () => [], addEventListener: noop },
     window: { scrollTo: noop, addEventListener(type, listener) { listeners[type] = listener; } },
-    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
+    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderDependents, DEPENDENT_ROUTES, renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
     showMarmeladaResult: result => { presentations.push(result); },
     setupInviteFields: noop, setInviteFieldsBusy: noop, setupGroupFields: noop, parseBudget: Number, setupOTP: noop,
     openProfileEditor: noop, setupPhotoInputs: noop, getSignupAvatar: () => null, resetSignupAvatar: noop,
@@ -384,7 +385,8 @@ test('administrative user deletion requires the exact email, submits once and cl
   h.state.user = administrator; h.state.adminData = { user: target }; h.state.marmeladaData = { group: { name: 'Private draw' } }; h.state.match = { name: 'Secret match' };
   const opening = h.action('admin-delete-user', {});
   h.requests.find(request => request.path === '/api/admin/users/delete-user/delete-preview').respond({ user: target, canDelete: true, effects: { groupsDeleted: 2, membershipsRemoved: 3, drawnParticipationsAnonymized: 1, notificationsDeleted: 5 } }); await opening;
-  assert(fixture.dialog.innerHTML.includes('participação ficará anônima'));
+  assert(fixture.dialog.innerHTML.includes('as participações da conta e dos seus dependentes ficarão anônimas para preservar os pares do sorteio'));
+  assert(fixture.dialog.innerHTML.includes('os dependentes cadastrados'));
   fixture.input.value = target.email + ' '; fixture.listeners.input(); assert(fixture.button.disabled);
   await fixture.listeners.submit({ preventDefault() {} }); assert.equal(h.requests.filter(request => request.path.endsWith('/delete')).length, 0);
   fixture.input.value = target.email; fixture.listeners.input(); assert(!fixture.button.disabled);
@@ -397,4 +399,142 @@ test('administrative user deletion requires the exact email, submits once and cl
   h.requests.find(request => request.path === '/api/admin/overview').respond(emptyAdminSummary);
   h.requests.find(request => request.path.startsWith('/api/admin/users?')).respond({ users: [], pagination: emptyAdminList.pagination }); await deleting;
   assert.equal(h.location.hash, '#admin?tab=users'); assert.equal(fixture.dialog.open, false);
+});
+
+const childOne = { id: 'child-1', firstName: 'Lia', lastName: 'Teste', name: 'Lia Teste', createdAt: '2026-11-12T10:00:00Z' };
+const childTwo = { id: 'child-2', firstName: 'Caio', lastName: 'Teste', name: 'Caio Teste', createdAt: '2026-11-12T11:00:00Z' };
+const dependentGroupPayload = ({ drawn = false, active = false } = {}) => ({
+  group: { ...invitedGroup, drawn, role: 'member', participantCount: active ? 4 : 3, acceptedCount: active ? 4 : 3 },
+  role: 'member', participants: [{ ...signedInUser, id: 'own-membership', userId: signedInUser.id, name: 'Pessoa Conectada', status: 'accepted' }],
+  ownDependents: [{ ...childOne, active, membershipId: active ? 'child-membership' : null }, { ...childTwo, active: false, membershipId: null }], match: null,
+});
+const familyResults = {
+  match: { id: 'adult-recipient', name: 'Destino privado do responsável', email: 'adult-secret@example.test' },
+  dependentResults: [{ dependent: childOne, match: { id: 'child-recipient', name: 'Destino privado de Lia', email: 'child-secret@example.test' } }],
+};
+
+test('dependent catalog loads only the current account list and creates a name without automatically joining a group', async () => {
+  const h = harness({ hash: '#dependents' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  assert.equal(h.requests.length, 2); assert.equal(h.requests[1].path, '/api/dependents'); assert.equal(h.requests[1].body, null);
+  h.requests[1].respond({ dependents: [childOne] }); await tick();
+  assert(h.app.innerHTML.includes(childOne.name)); assert(h.app.innerHTML.includes('Cadastrar não inclui a pessoa automaticamente nos grupos'));
+  assert(!h.app.innerHTML.includes('name="email"')); assert(!h.app.innerHTML.includes('name="password"'));
+  const form = fixtureForm('create-dependent', { firstName: '  Caio  ', lastName: '  Teste  ', guardianId: 'someone-else', active: true });
+  const creating = h.submit({ preventDefault() {}, currentTarget: form });
+  await h.submit({ preventDefault() {}, currentTarget: form });
+  const mutations = h.requests.filter(request => request.body); assert.equal(mutations.length, 1);
+  assert.equal(mutations[0].path, '/api/dependents'); assert.deepEqual(mutations[0].body, { firstName: 'Caio', lastName: 'Teste' });
+  mutations[0].respond({ dependent: childTwo }); await creating;
+  assert.equal(h.state.dependents.length, 2); assert(h.app.innerHTML.includes(childTwo.name));
+  assert.equal(h.requests.filter(request => request.path.startsWith('/api/groups')).length, 0);
+  assert.equal(h.state.ownDependents.length, 0); assert.equal(h.storage.size, 0);
+});
+
+test('creating a dependent from a group returns to its roster without activating participation', async () => {
+  const h = harness({ hash: '#dependents?group=group-1' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/dependents').respond({ dependents: [] }); await tick();
+  assert(h.app.innerHTML.includes('volta ao grupo para escolher se este dependente participa'));
+  const creating = h.submit({ preventDefault() {}, currentTarget: fixtureForm('create-dependent', { firstName: 'Lia', lastName: 'Teste' }) });
+  h.requests.find(request => request.path === '/api/dependents' && request.body).respond({ dependent: childOne }); await tick();
+  const roster = h.requests.find(request => request.path === '/api/groups/group-1'); assert(roster); assert.equal(roster.body, null);
+  roster.respond(dependentGroupPayload()); await creating;
+  assert.equal(h.location.hash, '#group?id=group-1'); assert.equal(h.state.ownDependents[0].active, false);
+  assert(h.app.innerHTML.includes('Incluir Lia Teste neste grupo'));
+  assert.equal(h.requests.filter(request => request.path.startsWith('/api/groups') && request.body).length, 0);
+});
+
+test('dependent participation changes only after an explicit current-group action and blocks duplicate requests while saving', async () => {
+  const h = harness({ hash: '#group?id=group-1' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups/group-1').respond(dependentGroupPayload()); await tick();
+  assert.equal(h.requests.filter(request => request.body).length, 0);
+  await h.action('toggle-dependent', { dataset: { dependentId: 'not-my-dependent' } });
+  assert.equal(h.requests.filter(request => request.body).length, 0);
+  const activating = h.action('toggle-dependent', { dataset: { dependentId: childOne.id, groupId: 'wrong-group', dependentActive: 'false' } });
+  await h.action('toggle-dependent', { dataset: { dependentId: childOne.id } });
+  await h.action('toggle-dependent', { dataset: { dependentId: childTwo.id } });
+  const writes = h.requests.filter(request => request.body); assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, '/api/groups/group-1/dependents/child-1'); assert.deepEqual(writes[0].body, { active: true });
+  assert.equal(h.state.dependentBusyId, childOne.id); assert.equal(h.state.ownDependents[0].active, false);
+  assert(h.app.innerHTML.includes('Salvando…'));
+  writes[0].respond({ ok: true }); await tick();
+  h.requests.filter(request => request.path === '/api/groups/group-1').at(-1).respond(dependentGroupPayload({ active: true })); await activating;
+  assert.equal(h.state.dependentBusyId, ''); assert.equal(h.state.ownDependents[0].active, true);
+  assert(h.app.innerHTML.includes('Retirar Lia Teste deste grupo'));
+  const removing = h.action('toggle-dependent', { dataset: { dependentId: childOne.id, dependentActive: 'true' } });
+  const removal = h.requests.filter(request => request.body).at(-1); assert.deepEqual(removal.body, { active: false });
+  removal.respond({ ok: true }); await tick();
+  h.requests.filter(request => request.path === '/api/groups/group-1').at(-1).respond(dependentGroupPayload()); await removing;
+  assert.equal(h.state.ownDependents[0].active, false);
+  const reopening = h.navigate('group', { id: invitedGroup.id });
+  h.requests.filter(request => request.path === '/api/groups/group-1').at(-1).respond(dependentGroupPayload({ drawn: true })); await reopening;
+  const before = h.requests.length;
+  await h.action('toggle-dependent', { dataset: { dependentId: childOne.id } });
+  assert.equal(h.requests.length, before); assert(!h.app.innerHTML.includes('data-action="toggle-dependent"'));
+});
+
+test('family results are fetched only on reveal and hidden results are cleared from both state and rendered content', async () => {
+  const h = harness({ hash: '#reveal?id=group-1' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups/group-1').respond(dependentGroupPayload({ drawn: true, active: true })); await tick();
+  assert.equal(h.requests.filter(request => request.path.endsWith('/result')).length, 0);
+  assert.equal(h.state.dependentResults.length, 0); assert.equal(h.state.match, null);
+  assert(h.app.innerHTML.includes('Revelar nossos amigos secretos')); assert(!h.app.innerHTML.includes('Destino privado'));
+  const revealing = h.action('reveal', {});
+  const result = h.requests.find(request => request.path === '/api/groups/group-1/result'); assert(result); assert.equal(result.body, null);
+  assert.equal(h.state.revealed, false); assert(!h.app.innerHTML.includes('Destino privado'));
+  result.respond(familyResults); await revealing;
+  assert.equal(h.state.dependentResults.length, 1); assert.equal(h.state.revealed, true);
+  assert(h.app.innerHTML.includes(familyResults.match.name)); assert(h.app.innerHTML.includes(familyResults.dependentResults[0].match.name));
+  assert(h.app.innerHTML.includes('As surpresas dos seus dependentes')); assert.equal(h.storage.size, 0);
+  const beforeHide = h.requests.length;
+  await h.action('hide-result', {});
+  assert.equal(h.requests.length, beforeHide); assert.equal(h.state.match, null); assert.equal(h.state.dependentResults.length, 0); assert.equal(h.state.revealed, false);
+  assert(!h.app.innerHTML.includes('Destino privado')); assert(!h.app.innerHTML.includes('adult-secret@example.test')); assert(!h.app.innerHTML.includes('child-secret@example.test'));
+  const revealingAgain = h.action('reveal', {});
+  h.requests.filter(request => request.path.endsWith('/result')).at(-1).respond(familyResults); await revealingAgain;
+  assert.equal(h.state.dependentResults.length, 1); assert(h.app.innerHTML.includes('Destino privado de Lia'));
+  const leaving = h.action('logout', {}); h.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leaving;
+  assert.equal(h.state.user, null); assert.equal(h.state.match, null); assert.equal(h.state.dependentResults.length, 0); assert.equal(h.state.ownDependents.length, 0);
+  assert(!h.app.innerHTML.includes('Destino privado')); assert.equal(h.storage.size, 0);
+});
+
+test('logout clears the dependent catalog, participation and results, and a late reveal cannot restore them', async () => {
+  const h = harness({ hash: '#reveal?id=group-1' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups/group-1').respond(dependentGroupPayload({ drawn: true, active: true })); await tick();
+  h.state.dependents = [childOne, childTwo];
+  const revealing = h.action('reveal', {}), response = h.requests.find(request => request.path.endsWith('/result'));
+  const leaving = h.action('logout', {}); h.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leaving;
+  assert.equal(h.state.user, null); assert.equal(h.state.dependents.length, 0); assert.equal(h.state.ownDependents.length, 0);
+  assert.equal(h.state.dependentResults.length, 0); assert.equal(h.state.match, null); assert.equal(h.state.dependentsReturnGroupId, '');
+  const requestCount = h.requests.length;
+  response.respond(familyResults); await revealing;
+  assert.equal(h.requests.length, requestCount); assert.equal(h.state.user, null); assert.equal(h.state.dependentResults.length, 0); assert.equal(h.state.match, null);
+  assert(!h.app.innerHTML.includes('Destino privado')); assert(!h.app.innerHTML.includes(childOne.name)); assert.equal(h.storage.size, 0);
+});
+
+test('a late dependent creation or participation response cannot repopulate state after logout', async () => {
+  const catalog = harness({ hash: '#dependents' });
+  catalog.requests[0].respond({ user: signedInUser }); await tick();
+  catalog.requests.find(request => request.path === '/api/dependents').respond({ dependents: [] }); await tick();
+  const creating = catalog.submit({ preventDefault() {}, currentTarget: fixtureForm('create-dependent', { firstName: childOne.firstName, lastName: childOne.lastName }) });
+  const createResponse = catalog.requests.find(request => request.path === '/api/dependents' && request.body);
+  const leavingCatalog = catalog.action('logout', {}); catalog.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leavingCatalog;
+  createResponse.respond({ dependent: childOne }); await creating;
+  assert.equal(catalog.state.dependents.length, 0); assert.equal(catalog.state.user, null); assert(!catalog.app.innerHTML.includes(childOne.name));
+
+  const roster = harness({ hash: '#group?id=group-1' });
+  roster.requests[0].respond({ user: signedInUser }); await tick();
+  roster.requests.find(request => request.path === '/api/groups/group-1').respond(dependentGroupPayload()); await tick();
+  const toggling = roster.action('toggle-dependent', { dataset: { dependentId: childOne.id } });
+  const toggleResponse = roster.requests.find(request => request.path.endsWith('/dependents/child-1'));
+  const leavingRoster = roster.action('logout', {}); roster.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leavingRoster;
+  const requestCount = roster.requests.length;
+  toggleResponse.respond({ ok: true }); await toggling;
+  assert.equal(roster.requests.length, requestCount, 'A late mutation must not refresh an authenticated roster after logout');
+  assert.equal(roster.state.ownDependents.length, 0); assert.equal(roster.state.dependentBusyId, ''); assert.equal(roster.state.user, null);
+  assert(!roster.app.innerHTML.includes(childOne.name));
 });

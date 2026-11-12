@@ -44,3 +44,14 @@ test('receipt lookup cannot accept an unrelated delivery', async () => {
     assert.equal(await getDeliveryReceipt(id), null);
   } finally { globalThis.fetch = original; }
 });
+
+test('dependent results identify the child and guardian without requesting a child email', () => {
+  const message = notificationContent({ kind: 'result', user: { firstName: 'Responsável' }, dependent: { name: 'Bia <script>' },
+    group: { id: 'group', name: 'Família', date: '2026-12-24', budget: 100 }, match: { name: 'Leo <b>', isDependent: true, responsibleName: 'Outra <pessoa>' } });
+  assert.match(message.subject, /O amigo secreto de Bia/);
+  assert.match(message.text, /Bia <script> tirou Leo <b>/);
+  assert.match(message.text, /como responsável pelo dependente/);
+  assert(message.html.includes('Bia &lt;script&gt;')); assert(!message.html.includes('<script>'));
+  assert(message.html.includes('Outra &lt;pessoa&gt;')); assert(message.html.includes('Ver resultado do dependente'));
+  assert(!message.text.includes('você tirou'));
+});

@@ -4,6 +4,7 @@ import { setupOTP } from './otp.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from './ui.js';
 import { renderAuth, AUTH_ROUTES } from './auth.js';
 import { renderGroups, GROUP_ROUTES } from './groups.js';
+import { renderDependents, DEPENDENT_ROUTES } from './dependents.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from './admin.js';
 import { showMarmeladaResult } from './marmelada.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
@@ -20,6 +21,7 @@ function readChallenge() {
 const storedChallenge = readChallenge();
 const state = {
   production: true, user: null, groups: [], pendingInvitations: [], acceptingInvitationId: '', dashboardInvitationErrors: {}, group: null, participants: [],
+  dependents: [], ownDependents: [], dependentResults: [], dependentsReturnGroupId: '', dependentBusyId: '', dependentGroupError: '',
   marmeladaData: null, marmeladaSearch: '',
   adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
   role: 'member', organizerEmail: '', drawn: false, revealed: false, match: null,
@@ -30,13 +32,13 @@ const state = {
 };
 const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal']);
 const organizerRoutes = new Set(['invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn']);
-const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
-const signedRoutes = new Set([...GROUP_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
+const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
+const signedRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
 let route = 'welcome', params = new URLSearchParams(), version = 0, toastTimer;
 let busyDraw = false, sessionLoaded = false;
 let pendingMagicVerification = null;
 const pendingActions = new Set();
-const titles = { 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
+const titles = { dependents: 'Meus dependentes', 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
 
 class ApiError extends Error {
   constructor(code, message, status, payload) { super(message); this.code = code; this.status = status; this.payload = payload; }
@@ -93,8 +95,8 @@ function render() {
   const snapshot = viewState();
   setAvatarDirectory([...state.participants, ...state.groups.flatMap(group => group.participants || []), ...(state.match ? [state.match] : []), ...(state.user ? [{ ...state.user, name: `${state.user.firstName} ${state.user.lastName}` }] : [])]);
   const screen = route === 'dashboard' && !state.groups.length && !state.pendingInvitations.length ? 'dashboard-empty' : route;
-  const content = renderAuth(screen, snapshot) ?? renderGroups(screen, snapshot) ?? renderAdmin(screen, snapshot);
-  document.querySelector('#app').innerHTML = (GROUP_ROUTES.includes(screen) || ADMIN_ROUTES.includes(screen)) ? shell(content || '') : (content || '');
+  const content = renderAuth(screen, snapshot) ?? renderGroups(screen, snapshot) ?? renderDependents(screen, snapshot) ?? renderAdmin(screen, snapshot);
+  document.querySelector('#app').innerHTML = (GROUP_ROUTES.includes(screen) || DEPENDENT_ROUTES.includes(screen) || ADMIN_ROUTES.includes(screen)) ? shell(content || '') : (content || '');
   document.body.dataset.screen = screen;
   document.title = `${titles[screen] || 'Amigo Secreto'} · Amigo Secreto`;
   document.querySelector('#review-tools')?.replaceChildren();
@@ -175,7 +177,8 @@ function clearAdmin() {
   state.adminOverview = null; state.adminData = null; state.adminTab = 'groups'; state.adminSearch = ''; state.adminCreatedPage = 1; state.adminParticipatingPage = 1;
 }
 function clearPrivateState() {
-  clearAdmin(); state.groups = []; state.pendingInvitations = []; state.acceptingInvitationId = ''; state.dashboardInvitationErrors = {}; state.group = null; state.participants = []; state.match = null; state.revealed = false; state.drawn = false; state.role = 'member'; state.inviteEmails = []; state.inviteQueued = []; setAvatarDirectory([]);
+  state.dependents = []; state.ownDependents = []; state.dependentsReturnGroupId = ''; state.dependentBusyId = ''; state.dependentGroupError = '';
+  clearAdmin(); state.groups = []; state.pendingInvitations = []; state.acceptingInvitationId = ''; state.dashboardInvitationErrors = {}; state.group = null; state.participants = []; state.match = null; state.revealed = false; state.dependentResults = []; state.drawn = false; state.role = 'member'; state.inviteEmails = []; state.inviteQueued = []; setAvatarDirectory([]);
 }
 function clearChallenge() {
   state.challenge = null; state.requestPayload = null; storage.set(CHALLENGE_KEY, null);
@@ -200,11 +203,12 @@ function rememberDashboard(data) {
 function rememberGroup(data) {
   const group = data.group || data;
   state.group = group;
+  state.ownDependents = data.ownDependents || group.ownDependents || []; state.dependentGroupError = '';
   state.participants = data.participants || group.participants || [];
   state.role = data.role || group.role || (group.organizerId === state.user?.id ? 'organizer' : 'member');
   state.organizerEmail = data.organizerEmail || group.organizerEmail || state.participants.find(person => person.isOrganizer)?.email || '';
   state.drawn = Boolean(group.drawn || group.drawnAt);
-  state.match = null; state.revealed = false;
+  state.match = null; state.revealed = false; state.dependentResults = [];
 }
 async function loadGroup(id) {
   return api(`/groups/${segment(id)}`);
@@ -276,11 +280,16 @@ async function navigate(next, options = {}) {
         if (navigation !== version || !state.user?.isAdmin) return;
         state.adminData = data;
       }
+    } else if (route === 'dependents') {
+      state.dependentsReturnGroupId = params.get('group') || '';
+      const result = await api('/dependents');
+      if (navigation !== version) return;
+      state.dependents = result.dependents || [];
     } else if (route === 'dashboard' || route === 'dashboard-empty') {
       const result = await api('/groups');
       if (navigation !== version) return;
       rememberDashboard(result);
-      state.group = null; state.participants = []; state.match = null; state.revealed = false;
+      state.group = null; state.ownDependents = []; state.participants = []; state.match = null; state.revealed = false; state.dependentResults = [];
     } else if (groupRoutes.has(route) || (route === 'invitation-accepted' && params.get('id'))) {
       const data = await loadGroup(params.get('id'));
       if (navigation !== version) return;
@@ -337,7 +346,7 @@ function lockForm(form, locked) {
   form.setAttribute('aria-busy', String(locked));
   form.querySelectorAll('button[type="submit"]').forEach(button => { button.disabled = locked; });
   setInviteFieldsBusy(form, locked);
-  if (['register', 'login', 'recover-password', 'reset-password', 'verify'].includes(form.dataset.form)) form.querySelectorAll('input').forEach(input => { input.disabled = locked; });
+  if (['register', 'login', 'recover-password', 'reset-password', 'verify', 'create-dependent'].includes(form.dataset.form)) form.querySelectorAll('input').forEach(input => { input.disabled = locked; });
   if (form.dataset.form === 'register') updateEmailFeedback(form);
 }
 async function completeLogin(user, fromLink = false) {
@@ -358,7 +367,24 @@ async function submit(event) {
   const type = form.dataset.form;
   lockForm(form, true);
   try {
-    if (type === 'marmelada-search') {
+    if (type === 'create-dependent') {
+      if (!state.user) return;
+      const navigation = version, userId = state.user.id, returnGroup = state.dependentsReturnGroupId;
+      try {
+        const firstName = value('firstName'), lastName = value('lastName');
+        if (!firstName || !lastName) throw new ApiError('INVALID_NAME', 'Preencha o nome e o sobrenome do dependente.');
+        const result = await post('/dependents', { firstName, lastName });
+        if (navigation !== version || state.user?.id !== userId) return;
+        if (!result.dependent?.id) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar o cadastro. Atualize a página para conferir.');
+        state.dependents = [...state.dependents, result.dependent];
+        if (returnGroup) { await navigate('group', { id: returnGroup }); toast('Dependente cadastrado. Escolha a participação em cada grupo antes do sorteio.'); }
+        else { render(); toast('Dependente cadastrado. Escolha em quais grupos ele participa.'); }
+      } catch (error) {
+        if (navigation !== version || state.user?.id !== userId) return;
+        if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+        throw error;
+      }
+    } else if (type === 'marmelada-search') {
       if (!state.user?.isAdmin) return;
       await navigate(`admin-marmelada?${new URLSearchParams({ search: value('search'), page: '1' })}`);
     } else if (type === 'marmelada-check') {
@@ -604,15 +630,49 @@ async function action(name, target) {
       finally { busyDraw = false; }
       break;
     }
+    case 'toggle-dependent': {
+      const dependentId = target.dataset.dependentId, groupId = state.group?.id;
+      const dependent = state.ownDependents.find(item => item.id === dependentId);
+      if (!state.user || !groupId || !dependent || state.drawn || state.dependentBusyId) return;
+      const active = !dependent.active, navigation = version, userId = state.user.id;
+      const stillCurrent = () => version === navigation && state.user?.id === userId && state.group?.id === groupId;
+      state.dependentBusyId = dependentId; state.dependentGroupError = ''; render();
+      try {
+        await post(`/groups/${segment(groupId)}/dependents/${segment(dependentId)}`, { active });
+        if (!stillCurrent()) return;
+        const data = await loadGroup(groupId);
+        if (!stillCurrent()) return;
+        rememberGroup(data);
+        toast(active ? 'Dependente incluído neste amigo secreto.' : 'Dependente retirado deste amigo secreto.');
+      } catch (error) {
+        if (!stillCurrent()) return;
+        if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+        if (['CLOSED', 'INVITATION_CLOSED', 'GROUP_DRAWN'].includes(error.code)) { state.dependentBusyId = ''; await navigate('group', { id: groupId }); toast('O sorteio já foi realizado. As participações estão fechadas.'); }
+        else state.dependentGroupError = errorMessage(error);
+      } finally {
+        if (state.user?.id === userId && state.dependentBusyId === dependentId) {
+          state.dependentBusyId = '';
+          if (stillCurrent() && ['group', 'group-member'].includes(route)) render();
+          else if (['group', 'group-member'].includes(route)) document.querySelectorAll('[data-action="toggle-dependent"]').forEach(button => { const current = state.ownDependents.find(item => item.id === button.dataset.dependentId); button.disabled = false; button.setAttribute('aria-busy', 'false'); button.innerHTML = `${icon(current?.active ? 'x' : 'plus', 16)} ${current?.active ? 'Retirar do grupo' : 'Incluir no grupo'}`; });
+        }
+      }
+      break;
+    }
     case 'reveal': {
       if (!state.group?.id || !state.drawn) return;
-      const groupId = state.group.id, requestVersion = version;
-      const result = await api(`/groups/${segment(groupId)}/result`);
-      if (requestVersion !== version || state.group?.id !== groupId || route !== 'reveal') return;
+      const groupId = state.group.id, requestVersion = version, userId = state.user?.id;
+      let result;
+      try { result = await api(`/groups/${segment(groupId)}/result`); }
+      catch (error) {
+        if (requestVersion !== version || state.user?.id !== userId) return;
+        if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+        throw error;
+      }
+      if (requestVersion !== version || state.user?.id !== userId || state.group?.id !== groupId || route !== 'reveal') return;
       if (!result.match?.name) throw new ApiError('RESULT_UNAVAILABLE', 'Seu resultado ainda não está disponível. Aguarde o sorteio.');
-      state.match = result.match; state.revealed = true; render(); break;
+      state.match = result.match; state.dependentResults = result.dependentResults || []; state.revealed = true; render(); break;
     }
-    case 'hide-result': state.revealed = false; state.match = null; render(); break;
+    case 'hide-result': state.revealed = false; state.match = null; state.dependentResults = []; render(); break;
     case 'refresh-group': await navigate('group', { id: state.group?.id }); toast('Lista atualizada.'); break;
     case 'retry-notifications': {
       if (state.role !== 'organizer' || !state.group?.id) return;
@@ -628,7 +688,7 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }
