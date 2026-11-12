@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ApiError, query } from '../lib/db.js';
 import { accountAvailability, clientIP, loginAuthentication, logout, rateLimit, registerAuthentication, requestAuthentication, requestPasswordReset, resetPassword, sessionUser, verifyAuthentication, verifyPasswordReset } from '../lib/auth.js';
-import { acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, resendInvite, retryNotifications, trackOpen } from '../lib/groups.js';
+import { acceptGroupInvitation, acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, resendInvite, retryNotifications, trackOpen } from '../lib/groups.js';
 import { updateProfile } from '../lib/profile.js';
 import { adminGroup, adminGroups, adminOverview, adminUser, adminUsers } from '../lib/admin.js';
 import { requireAdmin } from '../lib/admin-access.js';
@@ -111,6 +111,7 @@ export default async function handler(req, res) {
     if (parts[0] === 'groups') {
       const id = parts[1];
       if (parts.length === 2 && method === 'GET') return send(res, 200, await getGroup(user, id));
+      if (parts.length === 3 && parts[2] === 'accept' && method === 'POST') return send(res, 200, await acceptGroupInvitation(user, id));
       if (parts.length === 3 && parts[2] === 'delete' && method === 'POST') return send(res, 200, await deleteGroup(user, id, body));
       if (parts.length === 3 && parts[2] === 'invites' && method === 'POST') return send(res, 200, await invitePeople(user, id, body));
       if (parts.length === 5 && parts[2] === 'invites' && parts[4] === 'resend' && method === 'POST') return send(res, 200, await resendInvite(user, id, parts[3]));

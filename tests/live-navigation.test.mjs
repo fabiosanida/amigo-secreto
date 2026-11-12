@@ -87,6 +87,7 @@ const inviteToken = 'i'.repeat(43);
 const invitedGroup = { id: 'group-1', name: 'Grupo de teste', date: '2026-12-24', budget: 20, drawn: false };
 const signedInUser = { id: 'user-2', firstName: 'Pessoa', lastName: 'Conectada', email: 'connected@example.test' };
 const invitationPayload = extra => ({ group: invitedGroup, recipientEmail: 'recipient@example.test', status: 'pending', currentUserInvited: false, currentUserAccepted: false, ...extra });
+const dashboardInvitation = { id: 'membership-1', invitationId: 'membership-1', group: { ...invitedGroup, organizerName: 'Pessoa Organizadora' }, invitedAt: '2026-11-12T10:00:00Z', expiresAt: '2027-01-12T10:00:00Z' };
 
 function fixtureForm(type, values) {
   const attributes = new Map();
@@ -121,6 +122,63 @@ test('a different invited account receives explicit confirmation for its own ide
   assert(html.includes('data-action="accept-invite"'));
   assert(html.includes('Sim, quero participar'));
   assert(!html.includes('não recebeu convite para este grupo'));
+});
+
+test('dashboard shows pending invitations even with no joined groups and never accepts them automatically', async () => {
+  const h = harness({ hash: '#dashboard' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups').respond({ groups: [], pendingInvitations: [dashboardInvitation] }); await tick();
+  assert(h.app.innerHTML.includes('Convites para você')); assert(h.app.innerHTML.includes('Pessoa Organizadora'));
+  assert(h.app.innerHTML.includes(signedInUser.email)); assert(h.app.innerHTML.includes('Aceitar convite para Grupo de teste'));
+  assert(h.app.innerHTML.includes('Seu próximo encontro está aqui.'));
+  assert.equal(h.state.pendingInvitations.length, 1); assert.equal(h.state.groups.length, 0);
+  assert.equal(h.requests.filter(request => request.path.endsWith('/accept')).length, 0);
+  assert.equal(h.state.inviteToken, ''); assert.equal(h.storage.size, 0);
+});
+
+test('explicit dashboard acceptance uses only the selected group and current session, refreshes the list and opens the joined group', async () => {
+  const h = harness({ hash: '#dashboard' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups').respond({ groups: [], pendingInvitations: [dashboardInvitation] }); await tick();
+  await h.action('accept-dashboard-invite', { dataset: { groupId: 'not-in-the-list' } });
+  assert.equal(h.requests.filter(request => request.path.endsWith('/accept')).length, 0);
+  const accepting = h.action('accept-dashboard-invite', { dataset: { groupId: invitedGroup.id } });
+  await h.action('accept-dashboard-invite', { dataset: { groupId: invitedGroup.id } });
+  const mutations = h.requests.filter(request => request.path.endsWith('/accept')); assert.equal(mutations.length, 1);
+  assert.equal(mutations[0].path, '/api/groups/group-1/accept'); assert.deepEqual(mutations[0].body, {});
+  assert(h.app.innerHTML.includes('Aceitando convite…')); assert.equal(h.state.acceptingInvitationId, invitedGroup.id);
+  mutations[0].respond({ group: invitedGroup }); await tick();
+  const refresh = h.requests.filter(request => request.path === '/api/groups').at(-1);
+  assert.notEqual(refresh, h.requests[1]); refresh.respond({ groups: [invitedGroup], pendingInvitations: [] }); await tick();
+  const detail = h.requests.find(request => request.path === '/api/groups/group-1'); assert(detail);
+  detail.respond({ group: { ...invitedGroup, role: 'member' }, role: 'member', participants: [{ ...signedInUser, name: 'Pessoa Conectada', status: 'accepted' }], match: null }); await accepting;
+  assert.equal(h.location.hash, '#group?id=group-1'); assert.equal(h.state.pendingInvitations.length, 0); assert.equal(h.state.acceptingInvitationId, '');
+  assert(h.state.groups.some(group => group.id === invitedGroup.id)); assert.equal(h.storage.size, 0);
+  assert.equal(h.requests.filter(request => request.path.startsWith('/api/invitations')).length, 0, 'No email token is consulted');
+});
+
+test('dashboard refreshes an invitation that expired before acceptance instead of retaining a broken action', async () => {
+  const h = harness({ hash: '#dashboard' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups').respond({ groups: [], pendingInvitations: [dashboardInvitation] }); await tick();
+  const accepting = h.action('accept-dashboard-invite', { dataset: { groupId: invitedGroup.id } });
+  h.requests.find(request => request.path.endsWith('/accept')).respond({ error: { code: 'INVITATION_EXPIRED', message: 'Convite expirado.' } }, 410); await tick();
+  h.requests.filter(request => request.path === '/api/groups').at(-1).respond({ groups: [], pendingInvitations: [] }); await accepting;
+  assert.equal(h.location.hash, '#dashboard'); assert.equal(h.state.pendingInvitations.length, 0); assert.equal(h.state.acceptingInvitationId, '');
+  assert(!h.app.innerHTML.includes('data-action="accept-dashboard-invite"'));
+});
+
+test('logout clears pending invitations and a late acceptance cannot restore another account’s dashboard', async () => {
+  const h = harness({ hash: '#dashboard' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups').respond({ groups: [], pendingInvitations: [dashboardInvitation] }); await tick();
+  const accepting = h.action('accept-dashboard-invite', { dataset: { groupId: invitedGroup.id } });
+  const mutation = h.requests.find(request => request.path.endsWith('/accept'));
+  const leaving = h.action('logout', {}); h.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leaving;
+  mutation.respond({ group: invitedGroup }); await accepting;
+  assert.equal(h.state.user, null); assert.equal(h.state.pendingInvitations.length, 0); assert.equal(h.state.acceptingInvitationId, '');
+  assert(!h.app.innerHTML.includes(invitedGroup.name));
+  assert.equal(h.requests.filter(request => request.path === '/api/groups').length, 1, 'A late response must not start authenticated refreshes after logout');
 });
 
 test('switching accounts keeps the invitation and returns to anonymous choices rather than accepting the recipient membership', async () => {

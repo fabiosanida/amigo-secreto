@@ -19,7 +19,7 @@ function readChallenge() {
 }
 const storedChallenge = readChallenge();
 const state = {
-  production: true, user: null, groups: [], group: null, participants: [],
+  production: true, user: null, groups: [], pendingInvitations: [], acceptingInvitationId: '', dashboardInvitationErrors: {}, group: null, participants: [],
   marmeladaData: null, marmeladaSearch: '',
   adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
   role: 'member', organizerEmail: '', drawn: false, revealed: false, match: null,
@@ -92,7 +92,7 @@ function renderError(error) {
 function render() {
   const snapshot = viewState();
   setAvatarDirectory([...state.participants, ...state.groups.flatMap(group => group.participants || []), ...(state.match ? [state.match] : []), ...(state.user ? [{ ...state.user, name: `${state.user.firstName} ${state.user.lastName}` }] : [])]);
-  const screen = route === 'dashboard' && !state.groups.length ? 'dashboard-empty' : route;
+  const screen = route === 'dashboard' && !state.groups.length && !state.pendingInvitations.length ? 'dashboard-empty' : route;
   const content = renderAuth(screen, snapshot) ?? renderGroups(screen, snapshot) ?? renderAdmin(screen, snapshot);
   document.querySelector('#app').innerHTML = (GROUP_ROUTES.includes(screen) || ADMIN_ROUTES.includes(screen)) ? shell(content || '') : (content || '');
   document.body.dataset.screen = screen;
@@ -175,7 +175,7 @@ function clearAdmin() {
   state.adminOverview = null; state.adminData = null; state.adminTab = 'groups'; state.adminSearch = ''; state.adminCreatedPage = 1; state.adminParticipatingPage = 1;
 }
 function clearPrivateState() {
-  clearAdmin(); state.groups = []; state.group = null; state.participants = []; state.match = null; state.revealed = false; state.drawn = false; state.role = 'member'; state.inviteEmails = []; state.inviteQueued = []; setAvatarDirectory([]);
+  clearAdmin(); state.groups = []; state.pendingInvitations = []; state.acceptingInvitationId = ''; state.dashboardInvitationErrors = {}; state.group = null; state.participants = []; state.match = null; state.revealed = false; state.drawn = false; state.role = 'member'; state.inviteEmails = []; state.inviteQueued = []; setAvatarDirectory([]);
 }
 function clearChallenge() {
   state.challenge = null; state.requestPayload = null; storage.set(CHALLENGE_KEY, null);
@@ -193,6 +193,9 @@ function parseHash(hash = location.hash) {
 }
 function href(next, query) {
   const text = query.toString(); return `#${next}${text ? `?${text}` : ''}`;
+}
+function rememberDashboard(data) {
+  state.groups = data.groups || []; state.pendingInvitations = data.pendingInvitations || []; state.dashboardInvitationErrors = {};
 }
 function rememberGroup(data) {
   const group = data.group || data;
@@ -276,7 +279,7 @@ async function navigate(next, options = {}) {
     } else if (route === 'dashboard' || route === 'dashboard-empty') {
       const result = await api('/groups');
       if (navigation !== version) return;
-      state.groups = result.groups || [];
+      rememberDashboard(result);
       state.group = null; state.participants = []; state.match = null; state.revealed = false;
     } else if (groupRoutes.has(route) || (route === 'invitation-accepted' && params.get('id'))) {
       const data = await loadGroup(params.get('id'));
@@ -543,6 +546,39 @@ async function action(name, target) {
       const result = await post(recovering ? '/auth/password/request' : '/auth/request', { email, ...(!recovering ? { challengeId: state.challenge.challengeId } : {}), ...(state.inviteToken ? { inviteToken: state.inviteToken } : {}) });
       saveChallenge({ ...result, email: result.email || email }); await navigate('verify'); toast(recovering ? 'Se o e-mail estiver cadastrado, um novo código chegará em instantes.' : 'Um novo código está a caminho do seu e-mail.'); break;
     }
+    case 'accept-dashboard-invite': {
+      const groupId = target.dataset.groupId;
+      if (!state.user || state.acceptingInvitationId || !state.pendingInvitations.some(invitation => invitation.group?.id === groupId)) return;
+      const navigation = version, userId = state.user.id;
+      const stillCurrent = () => navigation === version && state.user?.id === userId;
+      let accepted = false;
+      state.acceptingInvitationId = groupId; delete state.dashboardInvitationErrors[groupId]; render();
+      try {
+        await post(`/groups/${segment(groupId)}/accept`);
+        if (!stillCurrent()) return;
+        accepted = true;
+        state.pendingInvitations = state.pendingInvitations.filter(invitation => invitation.group?.id !== groupId);
+        if (state.invitation?.group?.id === groupId) { state.invitation = null; setInvitationToken(''); }
+        const dashboard = await api('/groups');
+        if (!stillCurrent()) return;
+        rememberDashboard(dashboard);
+        await navigate('group', { id: groupId });
+        toast('Convite aceito. Você já faz parte desse amigo secreto!');
+      } catch (error) {
+        if (!stillCurrent()) return;
+        if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login', { replace: true }); toast(errorMessage(error)); return; }
+        if (accepted) { await navigate('group', { id: groupId }); toast('Convite aceito. A lista será atualizada quando você voltar aos seus grupos.'); }
+        else if (['INVITATION_EXPIRED', 'INVITATION_CLOSED', 'CLOSED', 'EMAIL_MISMATCH', 'NOT_INVITED'].includes(error.code)) { state.acceptingInvitationId = ''; await navigate('dashboard', { replace: true }); toast(errorMessage(error)); }
+        else { state.dashboardInvitationErrors[groupId] = errorMessage(error); }
+      } finally {
+        if (state.user?.id === userId && state.acceptingInvitationId === groupId) {
+          state.acceptingInvitationId = '';
+          if (stillCurrent() && ['dashboard', 'dashboard-empty'].includes(route)) render();
+          else document.querySelectorAll('[data-action="accept-dashboard-invite"]').forEach(button => { button.disabled = false; button.setAttribute('aria-busy', 'false'); button.innerHTML = `${icon('check', 17)} Aceitar convite`; });
+        }
+      }
+      break;
+    }
     case 'accept-invite': {
       if (!state.user) { await navigate('register'); return; }
       if (!state.inviteToken) throw new ApiError('INVITATION_EXPIRED', 'Abra novamente seu convite por e-mail.');
@@ -592,7 +628,7 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'run-draw', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }

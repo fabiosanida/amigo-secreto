@@ -101,3 +101,9 @@
 .invitation-confirm-question{font-size:14px;line-height:1.6;color:var(--ink);margin:0 0 16px}
 .invitation-current-account p{min-width:0;overflow-wrap:anywhere}
 @media(max-width:600px){.auth-form .auth-password-control input{font-size:16px}.auth-password-field{gap:8px}.auth-email-actions .btn{flex:1}.auth-email-feedback{font-size:13px}}
+
+@media(max-width:600px){
+  /* Prevent Safari focus zoom from pushing the mobile form out of view. */
+  .auth-form .field input{font-size:16px}
+  .auth-success-profile>div{overflow-wrap:anywhere}
+}

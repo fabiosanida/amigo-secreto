@@ -182,7 +182,7 @@ test('real Neon API: verified identity, roster permissions, atomic draw and dura
       const invitations = [member, third, outsider].map(person => tokenOf(lastEmail(person.email)));
       for (const [index, person] of [member, third].entries()) await api(`invitations/${invitations[index]}/accept`, { method: 'POST', cookie: person.cookie, body: {} });
       const [accept, draw] = await Promise.all([
-        api(`invitations/${invitations[2]}/accept`, { method: 'POST', cookie: outsider.cookie, body: {} }),
+        api(`groups/${id}/accept`, { method: 'POST', cookie: outsider.cookie, body: {} }),
         api(`groups/${id}/draw`, { method: 'POST', cookie: owner.cookie, body: {} }),
       ]);
       assert.equal(draw.status, 200); assert([200, 409].includes(accept.status));

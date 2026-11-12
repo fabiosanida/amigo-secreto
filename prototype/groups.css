@@ -23,3 +23,68 @@
 .group-member-check{display:grid;place-items:center;width:54px;height:54px;background:#e8efe0;color:#729060;border-radius:50%;margin-bottom:23px}.group-member-card>h2{font-size:29px;line-height:1.2}.group-member-card>p{font-size:13px;line-height:1.8}.group-member-summary{border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:9px;padding:19px 0;margin:23px 0;color:#849475;font-size:12px;line-height:1.65}.group-member-summary>svg{margin-top:2px}.group-member-summary strong{font-weight:500;color:#5e7450}.group-member-waiting{display:flex;align-items:center;justify-content:center;gap:8px;background:#f1f3eb;border-radius:8px;padding:13px 9px;font-size:12px;color:#7c8c70}.group-member-card>.eyebrow{font-size:10px}.group-member-card>.btn{font-size:12px!important}
 
 .group-delete-area{margin-top:36px;border-top:1px solid var(--line);padding-top:26px;display:flex;justify-content:space-between;align-items:center;gap:22px}.group-delete-area strong{font-size:13px;font-weight:500}.group-delete-area p{font-size:12px;line-height:1.6;color:var(--muted);margin:6px 0 0}.btn-danger-outline{background:#fff9f6!important;border:1px solid #e8c7bc!important;color:#a14b36!important;box-shadow:0 2px 3px #a14b3608;white-space:nowrap;font-size:12px!important}.btn-danger-outline:hover{background:#fff0e9!important;border-color:#c98b76!important;box-shadow:0 4px 13px #a14b361a!important;transform:translateY(-1px)}.btn-danger{background:#ac4e37!important;color:#fff!important;border:1px solid #ac4e37!important;box-shadow:0 2px 4px #7b2d2420}.btn-danger:hover:not(:disabled){background:#963e2b!important;box-shadow:0 5px 16px #a14b362c!important;transform:translateY(-1px)}.btn-danger:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}#delete-group-dialog{width:min(540px,calc(100vw - 32px));border:1px solid #e4e3d8;border-radius:22px;padding:32px;background:var(--cream,#faf8f2);color:var(--ink);box-shadow:0 25px 100px #203d3533}#delete-group-dialog::backdrop{background:#203d3599;backdrop-filter:blur(4px)}.delete-group-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:23px}.delete-group-symbol{background:#fae9e2;color:#aa513b;border-radius:13px;display:grid;place-items:center;width:46px;height:46px}.delete-group-form h2{font:400 34px/1.15 Fraunces,Georgia,serif;letter-spacing:-.65px;margin:13px 0 20px}.delete-group-form>p{font-size:13px;line-height:1.85;color:#75816c;margin:0 0 19px}.delete-group-form>p strong{color:var(--ink);font-weight:500;overflow-wrap:anywhere}.delete-group-warning{display:flex;align-items:flex-start;gap:10px;background:#fff0e9;border:1px solid #efd8cc;border-radius:10px;padding:15px;color:#9e5a42;font-size:12px;line-height:1.65;margin-bottom:24px}.delete-group-warning svg{flex:none;margin-top:1px}.delete-group-form .field{font-size:12px}.delete-group-name{display:block;font-weight:600;overflow-wrap:anywhere;margin:2px 0 6px}.delete-group-form .field input{width:100%;font-size:14px}.delete-group-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:26px;padding-top:23px;border-top:1px solid var(--line)}.delete-group-actions .btn{font-size:12px;padding:12px 17px}.delete-group-form .form-error{margin-bottom:18px}@media(max-width:600px){.group-delete-area{align-items:flex-start;flex-direction:column}.group-delete-area .btn{width:100%}#delete-group-dialog{padding:24px}.delete-group-form h2{font-size:29px}.delete-group-form .field input{font-size:16px}.delete-group-actions{flex-direction:column-reverse}.delete-group-actions .btn{width:100%;min-height:46px}}
+
+/* Invitations share the dashboard request and stay separate until accepted. */
+.dashboard-invitations{margin-bottom:36px}
+.dashboard-invitations-heading{margin-bottom:10px}
+.dashboard-invitations-intro{font-size:14px;color:var(--muted);margin:0 0 20px;overflow-wrap:anywhere}
+.dashboard-invitations-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr))}
+.dashboard-invitation-card{display:flex;flex-direction:column;min-width:0;border-color:#cbdcc5;background:linear-gradient(155deg,#fff 65%,#f3f7ef)}
+.dashboard-invitation-card h3{overflow-wrap:anywhere}
+.dashboard-invitation-card .dashboard-invitation-organizer{display:block;font-size:13px;line-height:1.65;overflow-wrap:anywhere;margin-bottom:16px}
+.dashboard-invitation-facts{display:flex;flex-wrap:wrap;gap:12px 18px;color:#607358;font-size:13px;margin-bottom:22px}
+.dashboard-invitation-facts>span{display:flex;align-items:center;gap:7px}
+.dashboard-invitation-actions{margin-top:auto;padding-top:18px;border-top:1px solid #e4ebde}
+.dashboard-invitation-card .dashboard-invitation-error{display:block;color:#a04832;background:#fff0e9;border-radius:8px;padding:10px 12px;margin-top:12px;font-size:13px}
+.dashboard-awaiting-group{padding:26px;display:flex;gap:18px;align-items:flex-start}.dashboard-awaiting-group>.group-icon-circle{flex-shrink:0;margin:0}
+.dashboard-awaiting-group h2{font:400 24px/1.3 var(--serif);margin:0 0 10px}
+.dashboard-awaiting-group p{color:var(--muted);font-size:14px;margin:0;overflow-wrap:anywhere}
+.dashboard-grid>*{min-width:0}
+.dashboard-group-card h3,.group-detail-title h1,.group-detail-title p{overflow-wrap:anywhere}
+.dashboard-group-card>p{flex-wrap:wrap}
+.dashboard-card-symbol,.dashboard-card-arrow{flex-shrink:0}
+.group-participants-table th{position:relative}
+.group-detail-title>div,.group-create-layout>*,.group-form-row>*,.group-event-strip>div>span{min-width:0}
+
+/* Keep mobile information in one readable column, including participant status. */
+@media(max-width:680px){
+  .dashboard-grid{grid-template-columns:minmax(0,1fr)}
+  .dashboard-title-row>.btn{font-size:14px;min-height:46px}
+  .dashboard-feature{display:block;padding-bottom:28px}
+  .dashboard-feature-copy{position:relative}
+  .dashboard-feature h2{max-width:100%;font-size:26px}
+  .dashboard-feature p{max-width:calc(100% - 104px);font-size:13px;min-height:66px}
+  .dashboard-feature p br{display:none}
+  .dashboard-feature>.group-gift-art{right:-39px;bottom:-26px;transform:scale(.45) rotate(-10deg)}
+  .dashboard-invitations-heading{align-items:flex-start;flex-wrap:wrap;gap:12px}
+  .dashboard-invitations-heading h2{flex-wrap:wrap}
+  .dashboard-invitations-heading .btn{min-height:44px}
+  .dashboard-card-top .pill{white-space:normal;text-align:center;max-width:calc(100% - 60px)}
+  .dashboard-group-card>p,.dashboard-card-bottom>div>span{font-size:13px}
+  .dashboard-bottom-note{align-items:flex-start;text-align:center;line-height:1.6}
+  .dashboard-bottom-note svg{margin-top:3px}
+  .group-participants-heading .btn{min-height:44px;font-size:12px}
+  .group-table-tabs{flex-wrap:wrap}
+  .group-table-tabs .group-text-button{min-height:44px}
+  .group-participants-table{display:block;min-width:0;width:100%}
+  .group-participants-table thead{position:absolute;clip-path:inset(50%);clip:rect(0,0,0,0);width:1px;height:1px;overflow:hidden;white-space:nowrap}
+  .group-participants-table tbody{display:block;width:100%}
+  .group-participants-table tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:18px;border-bottom:1px solid var(--line)}
+  .group-participants-table tr:last-child{border-bottom:0}
+  .group-participants-table td,.group-participants-table td:nth-child(2){display:block;padding:0;border:0;min-width:0;white-space:normal}
+  .group-participants-table td:first-child{grid-column:1/-1}
+  .group-participants-table .group-person-action{padding:0!important;min-width:0;align-self:center}
+  .group-person{min-width:0;align-items:flex-start;gap:12px}
+  .group-person>div{min-width:0}
+  .group-person strong{font-size:14px;white-space:normal;overflow-wrap:anywhere}
+  .group-person>div>span{font-size:12px;overflow-wrap:anywhere}
+  .group-person>.avatar{width:36px;height:36px}
+  .group-status{max-width:100%;white-space:normal}
+  .group-person-action .group-text-button{min-height:40px;padding:8px;border:1px solid #d6dbd2;border-radius:8px;background:#fff}
+  .group-create-form input,.group-create-form textarea{font-size:16px}
+  .group-date-trigger{font-size:16px}
+  .invite-sent-list>div{display:grid;grid-template-columns:18px minmax(0,1fr);text-align:left;gap:8px}
+  .invite-sent-list>div>span:not(.group-status){overflow-wrap:anywhere}
+  .invite-sent-list .group-status{grid-column:2;margin-left:0;justify-self:start}
+  .draw-reveal-card>p,.draw-reveal-card h2{overflow-wrap:anywhere}
+}
