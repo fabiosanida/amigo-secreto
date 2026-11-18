@@ -180,6 +180,7 @@ function clearAdmin() {
   state.adminOverview = null; state.adminData = null; state.adminTab = 'groups'; state.adminSearch = ''; state.adminCreatedPage = 1; state.adminParticipatingPage = 1;
 }
 function clearPrivateState() {
+  clearGroupDateEditor();
   clearWishlists();
   state.dependents = []; state.ownDependents = []; state.dependentsReturnGroupId = ''; state.dependentBusyId = ''; state.dependentGroupError = '';
   clearAdmin(); state.groups = []; state.pendingInvitations = []; state.acceptingInvitationId = ''; state.dashboardInvitationErrors = {}; state.group = null; state.participants = []; state.match = null; state.revealed = false; state.dependentResults = []; state.drawn = false; state.role = 'member'; state.inviteEmails = []; state.inviteQueued = []; setAvatarDirectory([]);
@@ -355,6 +356,7 @@ async function navigate(next, options = {}) {
     showWishlistDiscard(() => { void navigate(next, { ...options, discardChanges: true }); });
     return;
   }
+  clearGroupDateEditor();
   clearWishlists();
   const parsed = parseHash(`#${next}`);
   next = parsed.route;
@@ -653,6 +655,56 @@ async function showAdminDelete(kind) {
   dialog.oncancel = event => { if (form.getAttribute('aria-busy') === 'true') event.preventDefault(); };
   dialog.showModal();
 }
+function clearGroupDateEditor() {
+  const dialog = document.querySelector('#group-date-dialog');
+  dialog?.querySelector('[data-calendar-dialog]')?.close();
+  dialog?.close();
+  if (dialog) dialog.innerHTML = '';
+}
+function showGroupDateEditor() {
+  const group = state.group, userId = state.user?.id, navigation = version;
+  if (!userId || !group?.id || group.organizerId !== userId || !['group', 'group-member'].includes(route)) return;
+  const dialog = document.querySelector('#group-date-dialog');
+  if (!dialog) return;
+  clearGroupDateEditor();
+  dialog.innerHTML = `<form class="group-date-editor"><div class="group-date-editor-heading"><span class="group-date-editor-symbol">${icon('calendar', 25)}</span><button type="button" class="btn btn-secondary group-date-editor-close" data-action="close-dialog" aria-label="Fechar edição de data">${icon('x', 20)}</button></div><span class="eyebrow">UM NOVO DIA PARA ESTAR JUNTO</span><h2 id="group-date-editor-title">Editar data da troca</h2><p>Escolha quando a turma de <strong>${escapeHtml(group.name)}</strong> vai se encontrar.</p><div class="field group-date-field" data-date-field><label id="edit-group-date-label">Data da troca</label><input type="hidden" name="date" value="${escapeHtml(group.date || '')}"><button type="button" class="group-date-trigger" data-date-trigger aria-haspopup="dialog" aria-expanded="false" aria-controls="edit-group-calendar" aria-describedby="edit-group-date-error"><span data-date-value>Escolha uma data</span>${icon('calendar', 18)}</button><span id="edit-group-date-error" class="group-date-error" data-date-error role="alert"></span><dialog id="edit-group-calendar" class="group-calendar" data-calendar-dialog aria-labelledby="group-calendar-title"></dialog></div><p class="group-date-editor-note">A nova data aparece na página do grupo. ${group.drawn ? 'Os pares do sorteio continuam os mesmos.' : 'As participações continuam confirmadas.'}</p><div class="group-date-editor-actions"><button type="button" class="btn btn-secondary" data-action="close-dialog">Cancelar</button><button type="submit" class="btn btn-primary">Salvar data ${icon('check', 17)}</button></div></form>`;
+  const form = dialog.querySelector('form'), button = form.querySelector('button[type="submit"]');
+  setupGroupFields(form);
+  const stillCurrent = () => navigation === version && state.user?.id === userId && state.group?.id === group.id && dialog.open && dialog.querySelector('form') === form;
+  dialog.oncancel = event => { if (event.target === dialog && form.getAttribute('aria-busy') === 'true') event.preventDefault(); };
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!stillCurrent() || form.getAttribute('aria-busy') === 'true' || !form.reportValidity()) return;
+    const date = form.elements.date.value;
+    if (!date) { formError(form, 'Escolha a data do encontro.'); return; }
+    form.setAttribute('aria-busy', 'true');
+    form.querySelectorAll('button,input').forEach(element => { element.disabled = true; });
+    button.textContent = 'Salvando…';
+    try {
+      const result = await post(`/groups/${segment(group.id)}/date`, { date });
+      if (!stillCurrent()) return;
+      if (result.group?.id !== group.id || result.group?.date !== date) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar a nova data. Tente salvar novamente.');
+      state.group = { ...state.group, date };
+      state.groups = state.groups.map(item => item.id === group.id ? { ...item, date } : item);
+      if (state.invitation?.group?.id === group.id) state.invitation.group = { ...state.invitation.group, date };
+      const scroll = window.scrollY;
+      clearGroupDateEditor(); render(); window.scrollTo({ top: scroll, behavior: 'instant' });
+      document.querySelector('[data-action="edit-group-date"]')?.focus({ preventScroll: true });
+      toast('Data da troca atualizada.');
+    } catch (error) {
+      if (!stillCurrent()) return;
+      if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); }
+      else formError(form, errorMessage(error));
+    } finally {
+      if (stillCurrent()) {
+        form.setAttribute('aria-busy', 'false');
+        form.querySelectorAll('button,input').forEach(element => { element.disabled = false; });
+        button.innerHTML = `Salvar data ${icon('check', 17)}`;
+      }
+    }
+  });
+  dialog.showModal();
+}
 function showDeleteGroup() {
   if (state.role !== 'organizer' || !state.group?.id) return;
   const group = { id: state.group.id, name: state.group.name };
@@ -713,6 +765,7 @@ async function action(name, target) {
     case 'wishlist-recipient': await openRecipientWishlist(target.dataset.dependentId || ''); break;
     case 'wishlist-recipient-more': await loadMoreRecipientWishlist(); break;
     case 'help': showHelp(); break;
+    case 'edit-group-date': showGroupDateEditor(); break;
     case 'delete-group': showDeleteGroup(); break;
     case 'admin-delete-group': await showAdminDelete('group'); break;
     case 'admin-delete-user': await showAdminDelete('user'); break;
@@ -850,7 +903,7 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['edit-group-date', 'wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }

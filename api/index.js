@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ApiError, query } from '../lib/db.js';
 import { accountAvailability, clientIP, loginAuthentication, logout, rateLimit, registerAuthentication, requestAuthentication, requestPasswordReset, resetPassword, sessionUser, verifyAuthentication, verifyPasswordReset } from '../lib/auth.js';
-import { acceptGroupInvitation, acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, resendInvite, retryNotifications, trackOpen } from '../lib/groups.js';
+import { acceptGroupInvitation, acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, resendInvite, retryNotifications, trackOpen, updateGroupDate } from '../lib/groups.js';
 import { updateProfile } from '../lib/profile.js';
 import { createDependent, listDependents, setDependentParticipation } from '../lib/dependents.js';
 import { listWishlist, recipientWishlist, saveWishlist } from '../lib/wishlists.js';
@@ -122,6 +122,7 @@ export default async function handler(req, res) {
         return send(res, 200, await recipientWishlist(user, id, { dependentId: url.searchParams.get('dependentId'), cursor: url.searchParams.get('cursor') }));
       }
       if (parts.length === 2 && method === 'GET') return send(res, 200, await getGroup(user, id));
+      if (parts.length === 3 && parts[2] === 'date' && method === 'POST') return send(res, 200, await updateGroupDate(user, id, body));
       if (parts.length === 4 && parts[2] === 'dependents' && method === 'POST') return send(res, 200, await setDependentParticipation(user, id, parts[3], body));
       if (parts.length === 3 && parts[2] === 'accept' && method === 'POST') return send(res, 200, await acceptGroupInvitation(user, id));
       if (parts.length === 3 && parts[2] === 'delete' && method === 'POST') return send(res, 200, await deleteGroup(user, id, body));

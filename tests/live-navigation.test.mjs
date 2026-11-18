@@ -301,6 +301,97 @@ function deletionDialogFixture() {
   return { dialog, form, button, input, listeners };
 }
 
+function groupDateDialogFixture() {
+  const listeners = {}, attributes = new Map(), input = { value: invitedGroup.date, disabled: false };
+  const button = { disabled: false, textContent: '', innerHTML: '' }, error = { textContent: '', scrollIntoView() {} };
+  const form = { elements: { date: input }, reportValidity: () => true,
+    getAttribute: key => attributes.get(key), setAttribute: (key, value) => attributes.set(key, value),
+    querySelector: selector => selector === 'button[type="submit"]' ? button : selector === '.form-error' ? error : null,
+    querySelectorAll: () => [button, input], addEventListener: (event, listener) => { listeners[event] = listener; },
+  };
+  const calendar = { open: false, close() { this.open = false; } };
+  const dialog = { innerHTML: '', open: false, showModal() { this.open = true; }, close() { this.open = false; },
+    querySelector: selector => selector === 'form' ? form : selector === '[data-calendar-dialog]' ? calendar : selector === '[aria-busy="true"]' && attributes.get('aria-busy') === 'true' ? form : null,
+  };
+  return { dialog, form, button, input, error, calendar, listeners };
+}
+
+async function dateEditorHarness({ drawn = false, creator = true } = {}) {
+  const fixture = groupDateDialogFixture(), h = harness({ hash: '#group?id=group-1', selectors: { '#group-date-dialog': fixture.dialog } });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  const group = { ...invitedGroup, drawn, organizerId: creator ? signedInUser.id : 'other-person', location: 'Local preservado', description: 'Recado preservado' };
+  h.requests.find(request => request.path === '/api/groups/group-1').respond({ group, role: creator ? 'organizer' : 'member', participants: [] }); await tick();
+  return { ...h, fixture, group };
+}
+
+test('the date editor is available only to the actual creator, before and after draw; cancel never saves', async () => {
+  const member = await dateEditorHarness({ creator: false });
+  assert(!member.app.innerHTML.includes('data-action="edit-group-date"'));
+  member.state.role = 'organizer';
+  await member.action('edit-group-date', {}); assert(!member.fixture.dialog.open, 'A forged UI role cannot enable the editor');
+  for (const drawn of [false, true]) {
+    const h = await dateEditorHarness({ drawn }), before = h.requests.length;
+    assert(h.app.innerHTML.includes('data-action="edit-group-date"'));
+    await h.action('edit-group-date', {}); assert(h.fixture.dialog.open);
+    assert(h.fixture.dialog.innerHTML.includes('data-calendar-dialog'));
+    assert.equal(h.requests.length, before, 'Opening the editor uses the group already loaded');
+    h.fixture.input.value = '2030-12-20';
+    await h.action('close-dialog', { closest: () => h.fixture.dialog });
+    assert(!h.fixture.dialog.open); assert.equal(h.requests.length, before);
+    assert.equal(h.state.group.date, invitedGroup.date);
+  }
+});
+
+test('saving a date posts once and refreshes group and dashboard dates while preserving revealed results', async () => {
+  const h = await dateEditorHarness({ drawn: true }), { fixture } = h;
+  h.state.groups = [h.group, { ...h.group, id: 'other-group' }];
+  h.state.invitation = { group: h.group };
+  h.state.match = { id: 'private-recipient', name: 'Resultado preservado' };
+  h.state.dependentResults = [{ dependent: childOne, match: { id: 'child-recipient' } }];
+  const results = JSON.stringify({ match: h.state.match, dependentResults: h.state.dependentResults });
+  await h.action('edit-group-date', {});
+  fixture.input.value = '2030-12-20';
+  const saving = fixture.listeners.submit({ preventDefault() {} });
+  await fixture.listeners.submit({ preventDefault() {} });
+  const writes = h.requests.filter(request => request.body); assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, '/api/groups/group-1/date'); assert.deepEqual(writes[0].body, { date: '2030-12-20' });
+  assert(fixture.button.disabled); assert(fixture.input.disabled);
+  await h.action('close-dialog', { closest: () => fixture.dialog }); assert(fixture.dialog.open, 'Cannot dismiss while saving');
+  assert.equal(h.state.group.date, invitedGroup.date, 'Keep the saved date until the server confirms it');
+  writes[0].respond({ group: { id: h.group.id, date: '2030-12-20' } }); await saving;
+  assert(!fixture.dialog.open); assert.equal(fixture.dialog.innerHTML, '');
+  assert.equal(h.state.group.date, '2030-12-20'); assert.equal(h.state.groups[0].date, '2030-12-20');
+  assert.equal(h.state.invitation.group.date, '2030-12-20'); assert.equal(h.state.groups[1].date, invitedGroup.date);
+  assert.equal(h.state.group.location, h.group.location); assert.equal(h.state.group.budget, h.group.budget);
+  assert.equal(JSON.stringify({ match: h.state.match, dependentResults: h.state.dependentResults }), results);
+  assert.equal(h.requests.length, 3, 'Saving does not reload the group or results');
+});
+
+test('a rejected date remains editable and does not replace the existing schedule', async () => {
+  const h = await dateEditorHarness(), { fixture } = h;
+  await h.action('edit-group-date', {}); fixture.input.value = '2030-02-30';
+  const saving = fixture.listeners.submit({ preventDefault() {} });
+  h.requests.find(request => request.path.endsWith('/date')).respond({ error: { code: 'VALIDATION', message: 'Escolha uma data válida.' } }, 400);
+  await saving;
+  assert(fixture.dialog.open); assert(!fixture.button.disabled); assert(!fixture.input.disabled);
+  assert.equal(fixture.error.textContent, 'Escolha uma data válida.'); assert.equal(h.state.group.date, invitedGroup.date);
+  fixture.input.value = '2030-12-20';
+  const retry = fixture.listeners.submit({ preventDefault() {} });
+  h.requests.filter(request => request.path.endsWith('/date')).at(-1).respond({ group: { id: h.group.id, date: '2030-12-20' } }); await retry;
+  assert.equal(h.state.group.date, '2030-12-20'); assert(!fixture.dialog.open);
+});
+
+test('a date response arriving after logout cannot restore private group state', async () => {
+  const h = await dateEditorHarness(), { fixture } = h;
+  await h.action('edit-group-date', {}); fixture.input.value = '2030-12-20';
+  const saving = fixture.listeners.submit({ preventDefault() {} });
+  const logout = h.action('logout', {}); h.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await logout;
+  assert(!fixture.dialog.open); assert.equal(fixture.dialog.innerHTML, '');
+  h.requests.find(request => request.path.endsWith('/date')).respond({ group: { id: h.group.id, date: '2030-12-20' } }); await saving;
+  assert.equal(h.state.user, null); assert.equal(h.state.group, null); assert.equal(h.state.groups.length, 0);
+  assert(!h.app.innerHTML.includes(h.group.name)); assert.equal(fixture.dialog.innerHTML, '');
+});
+
 test('only organizers see deletion, opening and cancelling sends no deletion request', async () => {
   const member = renderGroups('group', { production: true, user: signedInUser, role: 'member', group: invitedGroup, participants: [] });
   assert(!member.includes('data-action="delete-group"'));

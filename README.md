@@ -18,7 +18,7 @@ Essas regras de exclusão também se aplicam aos dependentes da conta: participa
 
 A página `#admin-marmelada` também é exclusiva do administrador. Ela permite selecionar um grupo sorteado, quem está anunciando seu amigo secreto e o nome anunciado. A API compara essa escolha com o sorteio original: o acerto abre uma apresentação verde com balões e confetes; a divergência abre a brincadeira “É MARMELADA!”. A apresentação oferece tela cheia, saída por Esc e uma nova conferência, com animações reduzidas para quem usa essa preferência. Uma resposta incorreta não revela o destinatário real. A conferência não modifica sorteios nem envia notificações.
 
-A criação de grupo usa um calendário próprio, com navegação por teclado e bloqueio de datas passadas. O valor do presente é um campo textual com decimal pt-BR, sem controles de incremento, e deve ficar entre R$ 1,00 e R$ 100.000,00; o mesmo mínimo é validado pela API e pelo banco.
+A criação de grupo usa um calendário próprio, com navegação por teclado e bloqueio de datas passadas. O criador também pode editar a data na página do grupo, antes ou depois do sorteio, usando esse mesmo calendário. A API confere a identidade do criador e altera apenas a data; participantes e pares sorteados são preservados. A edição não dispara notificações: e-mails enviados ou já enfileirados mantêm a data registrada no momento do envio ou enfileiramento. O valor do presente é um campo textual com decimal pt-BR, sem controles de incremento, e deve ficar entre R$ 1,00 e R$ 100.000,00; o mesmo mínimo é validado pela API e pelo banco.
 
 ## Executar
 
@@ -67,6 +67,8 @@ A integração usa o banco configurado, cria dados temporários identificados e 
 `tests/dependents-integration.test.mjs` também exige um schema `as_test_` isolado e cobre vínculo com o responsável, ativação por grupo, ciclo completo com dependentes, destinatários dos avisos, resultados privados, bloqueio após o sorteio e anonimização na exclusão da conta. `tests/live-navigation.test.mjs` verifica cadastro sem inclusão automática, revelação explícita e descarte de respostas atrasadas após logout.
 
 `tests/wishlists-integration.test.mjs` verifica listas por grupo, permissões de responsáveis e destinatários, paginação, validação e limpeza na exclusão, usando somente dados fictícios em um schema isolado.
+
+`tests/group-date-integration.test.mjs` usa um schema isolado para verificar a permissão exclusiva do criador, datas válidas, persistência e preservação de participantes, sorteios e notificações ao editar a data. Os testes de navegação também cobrem cancelamento, falhas de gravação, bloqueio de cliques repetidos e respostas tardias após logout.
 
 ## Publicar
 
