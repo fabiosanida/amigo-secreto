@@ -6,6 +6,8 @@ Cadastro com nome, sobrenome, e-mail e senha; acesso por e-mail e senha; foto co
 
 Uma conta verificada pode cadastrar até 20 dependentes em `#dependents`, usando apenas nome e sobrenome. O dependente não tem e-mail, senha ou acesso próprio. O responsável deve confirmar sua própria participação no grupo e incluir cada dependente explicitamente antes do sorteio. Cada dependente incluído ocupa um lugar individual na corrente; depois do sorteio, a participação fica travada. Os resultados aparecem na conta do responsável após a revelação e são enviados ao e-mail dele, identificando o dependente em cada mensagem. O cadastro é carregado sob demanda, sem consultas periódicas adicionais.
 
+Cada participante confirmado pode manter sugestões de presentes próprias para cada grupo, antes ou depois do sorteio. A página do grupo dá mais destaque a esse bloco após o sorteio. O editor aceita itens em texto livre com link HTTP(S) opcional, adição e remoção, sem um limite total de itens. Listas longas são carregadas em páginas e alterações são enviadas em lotes pequenos, apenas quando solicitadas. O responsável também pode editar a lista dos seus dependentes incluídos naquele grupo. Na revelação, o card central mostra somente a identidade sorteada e o botão para consultar suas sugestões; a API resolve o destinatário pelo sorteio e não aceita a escolha de qualquer participante. As sugestões não são enviadas por e-mail nem modificam os pares do sorteio. A exclusão de grupos ou contas também remove suas listas, inclusive quando a participação anonimizada precisa ser preservada.
+
 O criador pode apagar seu grupo após digitar o nome dele na confirmação. A exclusão é permanente e remove participações, convites, resultados e notificações relacionadas, preservando as contas dos usuários. Se um envio estiver em andamento, a API pede para aguardar antes de tentar novamente.
 
 A área `#admin` é exclusiva da conta verificada `fabiosanida@gmail.com`. A autorização é conferida na API pela identidade da sessão, além de controlar a navegação. Ela permite consultar todos os grupos, seus criadores, participantes e resultados, além das contas e seus grupos criados e participações. O administrador também pode apagar qualquer grupo ou excluir usuários após revisar o impacto e digitar o nome do grupo ou e-mail da conta. A própria conta administrativa fica protegida contra exclusão. Listas e históricos são paginados; detalhes são carregados sob demanda, sem atualização automática. Dados administrativos não são persistidos no armazenamento do navegador.
@@ -29,13 +31,14 @@ npm run build
 npm run dev
 ```
 
-A aplicação local fica em `http://127.0.0.1:4174`. Os layouts de revisão estão em `prototype/` e podem ser abertos com `node prototype/server.mjs`; o build de produção não inclui o controlador de demonstração nem a barra de revisão.
+A aplicação local fica em `http://127.0.0.1:4174`. Os layouts de revisão estão em `prototype/` e podem ser abertos com `node prototype/server.mjs`; o build de produção não inclui o controlador de demonstração nem a barra de revisão. Os layouts de sugestões ficam em `prototype/wishlist-preview.html`; `node prototype/bundle-wishlist-preview.mjs` gera uma prévia portátil em `prototype/review/sugestoes-presentes.html`.
 
 ## Estrutura
 
 - `prototype/live.js`: aplicação de produção, navegação e chamadas à API.
 - `prototype/auth.js`, `groups.js`, `profile.js`: telas e recorte de foto.
 - `prototype/dependents.js` e `dependents.css`: cadastro, participação por grupo e resultados dos dependentes.
+- `prototype/wishlist.js` e `wishlist.css`: sugestões por grupo, editor e consulta privada da lista do amigo sorteado.
 - `prototype/admin.js` e `admin.css`: área administrativa privada.
 - `prototype/marmelada.js` e `marmelada.css`: conferência e apresentação dos nomes anunciados.
 - `prototype/group-fields.js` e `group-fields.css`: calendário acessível e entrada de orçamento.
@@ -62,6 +65,8 @@ RUN_DB_TESTS=1 node --env-file=.env.local --test tests/integration.test.mjs test
 A integração usa o banco configurado, cria dados temporários identificados e os remove ao concluir. Os envios são interceptados pelo teste: nenhuma mensagem é enviada a endereços fictícios. A suíte cobre código de uso único, expiração, concorrência, autorização, aceite, sorteio, privacidade do resultado e repetição idempotente de notificações. A suíte adicional `tests/admin-integration.test.mjs` exige um schema isolado cujo nome comece com `as_test_`, com as migrações aplicadas e o `search_path` configurado na conexão. Ela testa permissões administrativas, paginação, consulta de resultados, exclusão confirmada de grupos e contas, anonimização dos sorteios preservados, revogação de acesso e conferência Marmelada sem alteração dos pares, sem tocar na conta administrativa real.
 
 `tests/dependents-integration.test.mjs` também exige um schema `as_test_` isolado e cobre vínculo com o responsável, ativação por grupo, ciclo completo com dependentes, destinatários dos avisos, resultados privados, bloqueio após o sorteio e anonimização na exclusão da conta. `tests/live-navigation.test.mjs` verifica cadastro sem inclusão automática, revelação explícita e descarte de respostas atrasadas após logout.
+
+`tests/wishlists-integration.test.mjs` verifica listas por grupo, permissões de responsáveis e destinatários, paginação, validação e limpeza na exclusão, usando somente dados fictícios em um schema isolado.
 
 ## Publicar
 

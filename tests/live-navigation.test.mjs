@@ -5,35 +5,37 @@ import { readFileSync } from 'node:fs';
 import { renderAuth, AUTH_ROUTES } from '../prototype/auth.js';
 import { renderGroups, GROUP_ROUTES } from '../prototype/groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from '../prototype/dependents.js';
+import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, wishlistDirty, validateWishlistItem, emptyWishlistItem } from '../prototype/wishlist.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from '../prototype/admin.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from '../prototype/ui.js';
 
 const source = readFileSync(new URL('../prototype/live.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {}) {
-  const requests = [], presentations = [], listeners = {}, app = { innerHTML: '' }, location = { hash };
+  const requests = [], presentations = [], discards = [], listeners = {}, app = { innerHTML: '' }, location = { hash };
   const storage = new Map(stored);
   const noop = () => {};
   const context = {
-    URLSearchParams, Date, Error, Map, Set, Promise, Number, String, Boolean, JSON, Math,
+    URLSearchParams, TextEncoder, Date, Error, Map, Set, Promise, Number, String, Boolean, JSON, Math,
     FormData: class { constructor(form) { this.values = form.values; } get(name) { return this.values[name] ?? null; } },
     setTimeout: () => 0, clearTimeout: noop, setInterval: () => 0, location,
     sessionStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
     history: { pushState(a, b, hash) { location.hash = hash; }, replaceState(a, b, hash) { location.hash = hash; } },
     document: { body: { dataset: {}, style: {} }, querySelector: selector => selector === '#app' ? app : selectors[selector] || null, querySelectorAll: () => [], addEventListener: noop },
     window: { scrollTo: noop, addEventListener(type, listener) { listeners[type] = listener; } },
-    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderDependents, DEPENDENT_ROUTES, renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
+    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderDependents, DEPENDENT_ROUTES, WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, wishlistDirty, validateWishlistItem, emptyWishlistItem, renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
     showMarmeladaResult: result => { presentations.push(result); },
+    setupWishlistFields: noop, showWishlistDiscard: callback => discards.push(callback),
     setupInviteFields: noop, setInviteFieldsBusy: noop, setupGroupFields: noop, parseBudget: Number, setupOTP: noop,
     openProfileEditor: noop, setupPhotoInputs: noop, getSignupAvatar: () => null, resetSignupAvatar: noop,
     fetch(path, options) {
-      return new Promise(resolve => requests.push({ path, body: options.body ? JSON.parse(options.body) : null,
+      return new Promise((resolve, reject) => requests.push({ path, reject, body: options.body ? JSON.parse(options.body) : null,
         respond(payload, status = 200) { resolve({ ok: status < 400, status, headers: new Headers(), json: async () => payload }); } }));
     },
   };
   vm.createContext(context);
   vm.runInContext(`${source}\nglobalThis.navigationTest = { navigate, state, action, submit };`, context);
-  return { requests, presentations, location, app, storage, ...context.navigationTest,
+  return { requests, presentations, discards, location, app, storage, ...context.navigationTest,
     pairedHistory(hash) { location.hash = hash; listeners.popstate(); listeners.hashchange(); },
     verifyRequests() { return requests.filter(request => request.path === '/api/auth/verify'); },
   };
@@ -537,4 +539,167 @@ test('a late dependent creation or participation response cannot repopulate stat
   assert.equal(roster.requests.length, requestCount, 'A late mutation must not refresh an authenticated roster after logout');
   assert.equal(roster.state.ownDependents.length, 0); assert.equal(roster.state.dependentBusyId, ''); assert.equal(roster.state.user, null);
   assert(!roster.app.innerHTML.includes(childOne.name));
+});
+
+const ownWishlistItem = { id: 'gift-1', text: 'Uma ideia particular de presente', url: 'https://example.test/presente' };
+const ownWishlistPayload = (extra = {}) => ({ owner: { membershipId: 'own-membership', firstName: 'Pessoa', lastName: 'Conectada', name: 'Pessoa Conectada' }, items: [{ ...ownWishlistItem }], nextCursor: null, ...extra });
+async function loadedWishlist(extra = {}) {
+  const h = harness({ hash: '#wishlist?id=group-1' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups/group-1').respond(dependentGroupPayload({ active: true })); await tick();
+  h.requests.find(request => request.path === '/api/groups/group-1/wishlist').respond(ownWishlistPayload(extra)); await tick();
+  return h;
+}
+function recipientDialogFixture() {
+  const listeners = {}, body = { scrollTop: 0 };
+  const dialog = { open: false, innerHTML: '', querySelector: selector => selector === '.wl-dialog-body' ? body : null,
+    addEventListener(type, listener) { listeners[type] = listener; },
+    showModal() { this.open = true; },
+    close() { const wasOpen = this.open; this.open = false; if (wasOpen) listeners.close?.(); },
+  };
+  return { dialog, listeners };
+}
+
+test('opening a group never loads wishes, and a late editor response cannot restore them after logout', async () => {
+  const group = harness({ hash: '#group?id=group-1' });
+  group.requests[0].respond({ user: signedInUser }); await tick();
+  group.requests.find(request => request.path === '/api/groups/group-1').respond(dependentGroupPayload()); await tick();
+  assert.equal(group.requests.length, 2); assert(group.app.innerHTML.includes('Minhas sugestões'));
+  assert.equal(group.requests.filter(request => request.path.includes('wishlist')).length, 0);
+
+  const h = harness({ hash: '#wishlist?id=group-1' });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups/group-1').respond(dependentGroupPayload()); await tick();
+  const listRequest = h.requests.find(request => request.path === '/api/groups/group-1/wishlist'); assert(listRequest);
+  const leaving = h.action('logout', {}); h.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leaving;
+  listRequest.respond(ownWishlistPayload()); await tick();
+  assert.equal(h.state.user, null); assert.equal(h.state.wishlist, null); assert.equal(h.state.recipientWishlist, null);
+  assert(!h.app.innerHTML.includes(ownWishlistItem.text)); assert.equal(h.storage.size, 0);
+});
+
+test('wishlist edits validate every row and require an explicit discard before navigation', async () => {
+  const h = await loadedWishlist();
+  assert(h.app.innerHTML.includes(ownWishlistItem.text));
+  await h.action('wishlist-add', {}); assert.equal(h.state.wishlist.items.length, 2);
+  await h.submit({ preventDefault() {}, currentTarget: fixtureForm('wishlist-save', {}) });
+  assert.equal(h.requests.filter(request => request.body).length, 0, 'Empty added rows cannot be silently dropped on save');
+  assert(h.state.wishlist.items[1].error);
+  await h.navigate('dashboard'); assert.equal(h.discards.length, 1); assert.equal(h.location.hash, '#wishlist?id=group-1');
+  assert.equal(h.requests.filter(request => request.path === '/api/groups').length, 0);
+  h.discards[0](); await tick();
+  h.requests.find(request => request.path === '/api/groups').respond({ groups: [], pendingInvitations: [] }); await tick();
+  assert.equal(h.state.wishlist, null); assert.equal(h.location.hash, '#dashboard');
+});
+
+test('wishlist pagination preserves dirty drafts and deduplicates already loaded entries', async () => {
+  const h = await loadedWishlist({ nextCursor: '50' });
+  h.state.wishlist.items[0].text = 'Alteração que ainda não salvei';
+  const loading = h.action('wishlist-more', {});
+  await h.action('wishlist-more', {});
+  const pages = h.requests.filter(request => request.path.includes('cursor=50')); assert.equal(pages.length, 1);
+  pages[0].respond(ownWishlistPayload({ items: [{ ...ownWishlistItem }, { id: 'gift-2', text: 'Mais uma ideia', url: '' }], nextCursor: null })); await loading;
+  assert.equal(h.state.wishlist.items.length, 2); assert.equal(h.state.wishlist.items[0].text, 'Alteração que ainda não salvei');
+  assert.equal(h.state.wishlist.originals[ownWishlistItem.id].text, ownWishlistItem.text); assert.equal(h.state.wishlist.nextCursor, null);
+});
+
+test('partial wishlist saves retain only pending operations for retry and never resend successful batches', async () => {
+  const h = await loadedWishlist({ items: [] });
+  h.state.wishlist.items = Array.from({ length: 55 }, (_, index) => ({ id: `gift-${index}`, text: `Ideia ${index}`, url: '' }));
+  const saving = h.submit({ preventDefault() {}, currentTarget: fixtureForm('wishlist-save', {}) });
+  const first = h.requests.find(request => request.path === '/api/groups/group-1/wishlist' && request.body); assert.equal(first.body.upserts.length, 50);
+  await h.submit({ preventDefault() {}, currentTarget: fixtureForm('wishlist-save', {}) });
+  assert.equal(h.requests.filter(request => request.body).length, 1, 'A concurrent save is ignored');
+  first.respond({ ok: true, items: first.body.upserts }); await tick();
+  const second = h.requests.filter(request => request.body).at(-1); assert.equal(second.body.upserts.length, 5);
+  second.respond({ error: { code: 'TEMPORARY_ERROR', message: 'Falha temporária.' } }, 503); await saving;
+  assert.equal(h.state.wishlist.busy, false); assert.equal(Object.keys(h.state.wishlist.originals).length, 50);
+  assert(h.state.wishlist.error.includes('Suas alterações pendentes continuam aqui'));
+  const retrying = h.submit({ preventDefault() {}, currentTarget: fixtureForm('wishlist-save', {}) });
+  const retry = h.requests.filter(request => request.body).at(-1); assert.equal(retry.body.upserts.length, 5);
+  assert(retry.body.upserts.every(item => Number(item.id.slice(5)) >= 50));
+  retry.respond({ ok: true, items: retry.body.upserts }); await tick();
+  h.requests.filter(request => request.path === '/api/groups/group-1').at(-1).respond(dependentGroupPayload()); await retrying;
+  assert.equal(h.location.hash, '#group?id=group-1'); assert.equal(h.state.wishlist, null); assert.equal(h.storage.size, 0);
+});
+
+test('recipient wishes load only on explicit reveal-screen actions and late closed-dialog responses remain private', async () => {
+  const fixture = recipientDialogFixture(), h = harness({ hash: '#reveal?id=group-1', selectors: { '#wishlist-recipient-dialog': fixture.dialog } });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.find(request => request.path === '/api/groups/group-1').respond(dependentGroupPayload({ drawn: true, active: true })); await tick();
+  await h.action('wishlist-recipient', { dataset: {} }); assert.equal(h.requests.filter(request => request.path.includes('wishlist')).length, 0);
+  const revealing = h.action('reveal', {}); h.requests.find(request => request.path.endsWith('/result')).respond(familyResults); await revealing;
+  assert(h.app.innerHTML.includes('Ver sugestões de presentes')); assert(!h.app.innerHTML.includes('O que faria você sorrir'));
+  assert.equal(h.requests.filter(request => request.path.includes('wishlist')).length, 0, 'Revealing a match does not fetch their list yet');
+  await h.action('wishlist-recipient', { dataset: { dependentId: 'someone-else-child' } });
+  assert.equal(h.requests.filter(request => request.path.includes('wishlist')).length, 0);
+  const opening = h.action('wishlist-recipient', { dataset: { dependentId: childOne.id } });
+  const request = h.requests.find(request => request.path === '/api/groups/group-1/result/wishlist?dependentId=child-1'); assert(request); assert(fixture.dialog.open);
+  await h.action('close-dialog', { closest: () => fixture.dialog }); assert.equal(h.state.recipientWishlist, null); assert.equal(fixture.dialog.innerHTML, '');
+  request.respond({ owner: { name: 'Segredo do dependente', firstName: 'Segredo' }, items: [{ id: 'private-item', text: 'Ideia secreta do destinatário', url: '' }], nextCursor: null }); await opening;
+  assert.equal(h.state.recipientWishlist, null); assert.equal(fixture.dialog.open, false); assert.equal(fixture.dialog.innerHTML, '');
+  const reopening = h.action('wishlist-recipient', { dataset: {} });
+  const ownRequest = h.requests.find(request => request.path === '/api/groups/group-1/result/wishlist'); assert(ownRequest);
+  const leaving = h.action('logout', {}); h.requests.find(request => request.path === '/api/auth/logout').respond({ ok: true }); await leaving;
+  ownRequest.respond(ownWishlistPayload()); await reopening;
+  assert.equal(h.state.user, null); assert.equal(h.state.recipientWishlist, null); assert.equal(h.state.wishlist, null);
+  assert.equal(fixture.dialog.innerHTML, ''); assert.equal(fixture.dialog.open, false); assert.equal(h.storage.size, 0);
+});
+
+test('removing a newly submitted wish after a lost response explicitly deletes the possibly committed item', async () => {
+  const h = await loadedWishlist({ items: [] });
+  const wish = { id: 'possibly-committed-gift', text: 'Uma ideia nova', url: '' };
+  h.state.wishlist.items = [{ ...wish }];
+  const saving = h.submit({ preventDefault() {}, currentTarget: fixtureForm('wishlist-save', {}) });
+  const request = h.requests.find(request => request.path.endsWith('/wishlist') && request.body); assert(request);
+  // The server may already have committed this item when its response is lost.
+  request.reject(new Error('Connection interrupted after commit')); await saving;
+  assert.equal(h.state.wishlist.originals[wish.id], undefined); assert.equal(h.state.wishlist.busy, false);
+  await h.action('wishlist-remove', { dataset: { itemId: wish.id } });
+  assert.equal(h.state.wishlist.items.length, 0); assert(h.state.wishlist.deletedIds.includes(wish.id));
+  const retrying = h.submit({ preventDefault() {}, currentTarget: fixtureForm('wishlist-save', {}) });
+  const deletion = h.requests.filter(request => request.body).at(-1);
+  assert.deepEqual(deletion.body.deletedIds, [wish.id]); assert.equal(deletion.body.upserts.length, 0);
+  deletion.respond({ ok: true, items: [] }); await tick();
+  h.requests.filter(request => request.path === '/api/groups/group-1').at(-1).respond(dependentGroupPayload()); await retrying;
+  assert.equal(h.state.wishlist, null); assert.equal(h.location.hash, '#group?id=group-1');
+});
+
+test('reverting an edited wish after a lost response still saves the intended original value', async () => {
+  const h = await loadedWishlist();
+  h.state.wishlist.items[0].text = 'Valor que o servidor pode ter salvo';
+  const saving = h.submit({ preventDefault() {}, currentTarget: fixtureForm('wishlist-save', {}) });
+  const request = h.requests.find(request => request.path.endsWith('/wishlist') && request.body); assert.equal(request.body.upserts[0].text, 'Valor que o servidor pode ter salvo');
+  request.reject(new Error('Connection interrupted after commit')); await saving;
+  h.state.wishlist.items[0].text = ownWishlistItem.text;
+  assert.equal(wishlistDirty(h.state.wishlist), true, 'An unconfirmed write remains dirty even after reverting to its old baseline');
+  await h.navigate('dashboard'); assert.equal(h.discards.length, 1); assert.equal(h.location.hash, '#wishlist?id=group-1');
+  const retrying = h.submit({ preventDefault() {}, currentTarget: fixtureForm('wishlist-save', {}) });
+  const writes = h.requests.filter(request => request.path.endsWith('/wishlist') && request.body); assert.equal(writes.length, 2);
+  const retry = writes.at(-1); assert.equal(retry.body.upserts[0].text, ownWishlistItem.text); assert.equal(retry.body.upserts[0].id, ownWishlistItem.id);
+  retry.respond({ ok: true, items: retry.body.upserts }); await tick();
+  h.requests.filter(request => request.path === '/api/groups/group-1').at(-1).respond(dependentGroupPayload()); await retrying;
+  assert.equal(h.state.wishlist, null); assert.equal(h.location.hash, '#group?id=group-1');
+});
+
+test('long Unicode suggestions are split by UTF-8 payload size as well as item count', async () => {
+  const h = await loadedWishlist({ items: [] });
+  const urlPrefix = 'https://example.test/';
+  const ideas = Array.from({ length: 50 }, (_, index) => ({ id: `large-gift-${index}`, text: '礼'.repeat(2000), url: urlPrefix + 'a'.repeat(2048 - urlPrefix.length) }));
+  assert(ideas.every(item => validateWishlistItem(item) === ''));
+  assert(Buffer.byteLength(JSON.stringify({ upserts: ideas, deletedIds: [] })) > 400000, 'The fixture must exceed the server request limit when sent as one count-only batch');
+  h.state.wishlist.items = ideas;
+  const saving = h.submit({ preventDefault() {}, currentTarget: fixtureForm('wishlist-save', {}) });
+  const responded = new Set(), written = [];
+  while (written.length < ideas.length) {
+    const request = h.requests.find(candidate => candidate.path.endsWith('/wishlist') && candidate.body && !responded.has(candidate));
+    assert(request, 'Every remaining suggestion must have a request'); responded.add(request);
+    assert(request.body.upserts.length + request.body.deletedIds.length <= 50);
+    assert(Buffer.byteLength(JSON.stringify(request.body)) < 400000, 'UTF-8 bytes must fit the API body limit');
+    written.push(...request.body.upserts); request.respond({ ok: true, items: request.body.upserts }); await tick();
+  }
+  assert(responded.size > 1, 'Valid large Unicode values require more than one batch');
+  assert.equal(written.length, ideas.length); assert.equal(new Set(written.map(item => item.id)).size, ideas.length);
+  assert.deepEqual(written.map(item => item.id), ideas.map(item => item.id));
+  h.requests.filter(request => request.path === '/api/groups/group-1').at(-1).respond(dependentGroupPayload()); await saving;
+  assert.equal(h.location.hash, '#group?id=group-1'); assert.equal(h.state.wishlist, null);
 });

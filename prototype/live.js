@@ -5,6 +5,7 @@ import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from './ui.js';
 import { renderAuth, AUTH_ROUTES } from './auth.js';
 import { renderGroups, GROUP_ROUTES } from './groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from './dependents.js';
+import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, wishlistDirty, validateWishlistItem, emptyWishlistItem, setupWishlistFields, showWishlistDiscard } from './wishlist.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from './admin.js';
 import { showMarmeladaResult } from './marmelada.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
@@ -22,6 +23,7 @@ const storedChallenge = readChallenge();
 const state = {
   production: true, user: null, groups: [], pendingInvitations: [], acceptingInvitationId: '', dashboardInvitationErrors: {}, group: null, participants: [],
   dependents: [], ownDependents: [], dependentResults: [], dependentsReturnGroupId: '', dependentBusyId: '', dependentGroupError: '',
+  wishlist: null, recipientWishlist: null,
   marmeladaData: null, marmeladaSearch: '',
   adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
   role: 'member', organizerEmail: '', drawn: false, revealed: false, match: null,
@@ -30,15 +32,15 @@ const state = {
   invitationError: '', invitationErrorCode: '', returnTo: '', challenge: storedChallenge, pendingUser: null,
   authMode: storedChallenge?.purpose === 'recover' ? 'recover' : storedChallenge ? 'register' : 'login', authEmail: storedChallenge?.email || '', accountCheck: null, resetToken: '', resendAt: Number(storedChallenge?.resendAt) || 0, requestPayload: null,
 };
-const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal']);
+const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal', 'wishlist']);
 const organizerRoutes = new Set(['invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn']);
-const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
-const signedRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
+const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
+const signedRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
 let route = 'welcome', params = new URLSearchParams(), version = 0, toastTimer;
 let busyDraw = false, sessionLoaded = false;
-let pendingMagicVerification = null;
+let pendingMagicVerification = null, recipientWishlistRequest = 0;
 const pendingActions = new Set();
-const titles = { dependents: 'Meus dependentes', 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
+const titles = { wishlist: 'Minhas sugestões', dependents: 'Meus dependentes', 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
 
 class ApiError extends Error {
   constructor(code, message, status, payload) { super(message); this.code = code; this.status = status; this.payload = payload; }
@@ -95,8 +97,8 @@ function render() {
   const snapshot = viewState();
   setAvatarDirectory([...state.participants, ...state.groups.flatMap(group => group.participants || []), ...(state.match ? [state.match] : []), ...(state.user ? [{ ...state.user, name: `${state.user.firstName} ${state.user.lastName}` }] : [])]);
   const screen = route === 'dashboard' && !state.groups.length && !state.pendingInvitations.length ? 'dashboard-empty' : route;
-  const content = renderAuth(screen, snapshot) ?? renderGroups(screen, snapshot) ?? renderDependents(screen, snapshot) ?? renderAdmin(screen, snapshot);
-  document.querySelector('#app').innerHTML = (GROUP_ROUTES.includes(screen) || DEPENDENT_ROUTES.includes(screen) || ADMIN_ROUTES.includes(screen)) ? shell(content || '') : (content || '');
+  const content = renderAuth(screen, snapshot) ?? renderGroups(screen, snapshot) ?? renderDependents(screen, snapshot) ?? renderWishlists(screen, snapshot) ?? renderAdmin(screen, snapshot);
+  document.querySelector('#app').innerHTML = (GROUP_ROUTES.includes(screen) || DEPENDENT_ROUTES.includes(screen) || WISHLIST_ROUTES.includes(screen) || ADMIN_ROUTES.includes(screen)) ? shell(content || '') : (content || '');
   document.body.dataset.screen = screen;
   document.title = `${titles[screen] || 'Amigo Secreto'} · Amigo Secreto`;
   document.querySelector('#review-tools')?.replaceChildren();
@@ -113,6 +115,7 @@ function render() {
   setupOTP(document.querySelector('#app'));
   setupInviteFields(document.querySelector('#app'));
   setupGroupFields(document.querySelector('#app'));
+  if (route === 'wishlist') setupWishlistFields(document.querySelector('#app'), state.wishlist);
   if (['register', 'login', 'recover-password'].includes(route)) {
     const user = currentUser();
     for (const name of ['firstName', 'lastName', 'email']) { const input = document.querySelector(`form [name="${name}"]`); const value = name === 'email' ? state.authEmail || state.invitation?.recipientEmail || user.email : user[name]; if (input && value) input.value = value; }
@@ -177,6 +180,7 @@ function clearAdmin() {
   state.adminOverview = null; state.adminData = null; state.adminTab = 'groups'; state.adminSearch = ''; state.adminCreatedPage = 1; state.adminParticipatingPage = 1;
 }
 function clearPrivateState() {
+  clearWishlists();
   state.dependents = []; state.ownDependents = []; state.dependentsReturnGroupId = ''; state.dependentBusyId = ''; state.dependentGroupError = '';
   clearAdmin(); state.groups = []; state.pendingInvitations = []; state.acceptingInvitationId = ''; state.dashboardInvitationErrors = {}; state.group = null; state.participants = []; state.match = null; state.revealed = false; state.dependentResults = []; state.drawn = false; state.role = 'member'; state.inviteEmails = []; state.inviteQueued = []; setAvatarDirectory([]);
 }
@@ -210,10 +214,148 @@ function rememberGroup(data) {
   state.drawn = Boolean(group.drawn || group.drawnAt);
   state.match = null; state.revealed = false; state.dependentResults = [];
 }
+function clearWishlists() {
+  recipientWishlistRequest++;
+  state.wishlist = null; state.recipientWishlist = null;
+  for (const id of ['#wishlist-recipient-dialog', '#wishlist-discard-dialog']) {
+    const dialog = document.querySelector(id); dialog?.close(); if (dialog) dialog.innerHTML = '';
+  }
+}
+function wishlistPath(groupId, dependentId = '', cursor = '', recipient = false) {
+  const query = new URLSearchParams();
+  if (dependentId) query.set('dependentId', dependentId);
+  if (cursor) query.set('cursor', cursor);
+  return `/groups/${segment(groupId)}/${recipient ? 'result/' : ''}wishlist${query.size ? `?${query}` : ''}`;
+}
+function renderWishlistUpdate(focusSelector = '') {
+  const scroll = window.scrollY;
+  render();
+  window.scrollTo({ top: scroll, behavior: 'instant' });
+  if (focusSelector) {
+    const input = document.querySelector(focusSelector); input?.focus({ preventScroll: true }); input?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+async function loadMoreWishlist() {
+  const list = state.wishlist, groupId = state.group?.id, navigation = version, userId = state.user?.id;
+  if (route !== 'wishlist' || !list?.nextCursor || list.busy || list.loadingMore) return;
+  const stillCurrent = () => navigation === version && state.user?.id === userId && state.wishlist === list && route === 'wishlist';
+  list.loadingMore = true; list.error = ''; renderWishlistUpdate();
+  try {
+    const result = await api(wishlistPath(groupId, list.dependentId, list.nextCursor));
+    if (!stillCurrent()) return;
+    for (const item of result.items || []) {
+      if (list.items.some(existing => existing.id === item.id) || list.deletedIds.includes(item.id)) continue;
+      list.items.push(item); list.originals[item.id] = { ...item };
+    }
+    list.nextCursor = result.nextCursor;
+  } catch (error) {
+    if (!stillCurrent()) return;
+    if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+    list.error = errorMessage(error);
+  } finally { if (stillCurrent()) { list.loadingMore = false; renderWishlistUpdate(); } }
+}
+async function saveWishlist() {
+  const list = state.wishlist, groupId = state.group?.id, navigation = version, userId = state.user?.id;
+  if (route !== 'wishlist' || !list || list.busy || !groupId || !userId) return;
+  const stillCurrent = () => navigation === version && state.user?.id === userId && state.wishlist === list && route === 'wishlist';
+  let firstInvalid;
+  for (const item of list.items) {
+    item.error = validateWishlistItem(item); item.errorField = item.error.startsWith('Use um link') ? 'url' : 'text';
+    if (item.error && !firstInvalid) firstInvalid = item;
+  }
+  if (firstInvalid) { renderWishlistUpdate(`[id="wish-${firstInvalid.errorField}-${firstInvalid.id}"]`); return; }
+  const upserts = list.items.filter(item => list.attemptedIds?.includes(item.id) || !list.originals[item.id] || item.text !== list.originals[item.id].text || item.url !== list.originals[item.id].url).map(({ id, text, url }) => ({ id, text: text.trim(), url: url.trim() }));
+  const operations = [...list.deletedIds.map(id => ({ deletedId: id })), ...upserts.map(item => ({ item }))];
+  const batches = []; let batch = [], batchBytes = 200;
+  for (const operation of operations) {
+    const bytes = new TextEncoder().encode(JSON.stringify(operation)).byteLength + 2;
+    if (batch.length && (batch.length === 50 || batchBytes + bytes > 350000)) { batches.push(batch); batch = []; batchBytes = 200; }
+    batch.push(operation); batchBytes += bytes;
+  }
+  if (batch.length) batches.push(batch);
+  list.busy = true; list.error = ''; renderWishlistUpdate();
+  try {
+    for (const batch of batches) {
+      if (!stillCurrent()) return;
+      const deletedIds = batch.filter(operation => operation.deletedId).map(operation => operation.deletedId);
+      list.attemptedIds = [...new Set([...(list.attemptedIds || []), ...batch.filter(operation => operation.item).map(operation => operation.item.id)])];
+      const result = await post(wishlistPath(groupId), { ...(list.dependentId ? { dependentId: list.dependentId } : {}), upserts: batch.filter(operation => operation.item).map(operation => operation.item), deletedIds });
+      if (!stillCurrent()) return;
+      // Advance the saved baseline after each batch. A failed later batch can be retried safely.
+      for (const item of result.items || []) {
+        list.originals[item.id] = { ...item };
+        const index = list.items.findIndex(current => current.id === item.id); if (index >= 0) list.items[index] = item;
+      }
+      list.deletedIds = list.deletedIds.filter(id => !deletedIds.includes(id));
+      for (const id of deletedIds) delete list.originals[id];
+      const confirmedIds = new Set([...deletedIds, ...(result.items || []).map(item => item.id)]);
+      list.attemptedIds = list.attemptedIds.filter(id => !confirmedIds.has(id));
+    }
+    if (!stillCurrent()) return;
+    list.busy = false;
+    await navigate('group', { id: groupId, discardChanges: true }); toast('Sugestões salvas para este amigo secreto.');
+  } catch (error) {
+    if (!stillCurrent()) return;
+    list.busy = false;
+    if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+    list.error = `${errorMessage(error)} Suas alterações pendentes continuam aqui para você tentar novamente.`;
+    renderWishlistUpdate('.wl-error');
+  } finally { if (stillCurrent()) { list.busy = false; } }
+}
+function drawRecipientWishlist() {
+  const list = state.recipientWishlist, dialog = document.querySelector('#wishlist-recipient-dialog');
+  if (!list || !dialog) return;
+  const scroll = dialog.querySelector('.wl-dialog-body')?.scrollTop || 0;
+  dialog.innerHTML = renderRecipientWishlist(list.data, { ...list, groupName: state.group?.name || '' });
+  const body = dialog.querySelector('.wl-dialog-body'); if (body) body.scrollTop = scroll;
+}
+async function openRecipientWishlist(dependentId = '') {
+  const groupId = state.group?.id, userId = state.user?.id, navigation = version;
+  if (!groupId || !userId || !state.revealed || route !== 'reveal') return;
+  if (dependentId && !state.dependentResults.some(result => result.dependent.id === dependentId)) return;
+  const request = ++recipientWishlistRequest, dialog = document.querySelector('#wishlist-recipient-dialog');
+  if (!dialog) return;
+  const list = { dependentId, data: null, loading: true, loadingMore: false, error: '' };
+  state.recipientWishlist = list; drawRecipientWishlist(); if (!dialog.open) dialog.showModal();
+  const stillCurrent = () => request === recipientWishlistRequest && navigation === version && state.user?.id === userId && state.group?.id === groupId && state.recipientWishlist === list && route === 'reveal' && dialog.open;
+  try {
+    const result = await api(wishlistPath(groupId, dependentId, '', true));
+    if (!stillCurrent()) return;
+    list.data = result;
+  } catch (error) {
+    if (!stillCurrent()) return;
+    if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+    list.error = errorMessage(error);
+  } finally { if (stillCurrent()) { list.loading = false; drawRecipientWishlist(); } }
+}
+async function loadMoreRecipientWishlist() {
+  const list = state.recipientWishlist, groupId = state.group?.id, userId = state.user?.id, navigation = version, request = recipientWishlistRequest;
+  const dialog = document.querySelector('#wishlist-recipient-dialog');
+  if (!list?.data?.nextCursor || list.loadingMore || !dialog?.open || route !== 'reveal') return;
+  const stillCurrent = () => request === recipientWishlistRequest && navigation === version && state.user?.id === userId && state.recipientWishlist === list && dialog.open;
+  list.loadingMore = true; list.error = ''; drawRecipientWishlist();
+  try {
+    const result = await api(wishlistPath(groupId, list.dependentId, list.data.nextCursor, true));
+    if (!stillCurrent()) return;
+    const known = new Set(list.data.items.map(item => item.id));
+    list.data.items.push(...(result.items || []).filter(item => !known.has(item.id))); list.data.nextCursor = result.nextCursor;
+  } catch (error) {
+    if (!stillCurrent()) return;
+    if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+    list.error = errorMessage(error);
+  } finally { if (stillCurrent()) { list.loadingMore = false; drawRecipientWishlist(); } }
+}
 async function loadGroup(id) {
   return api(`/groups/${segment(id)}`);
 }
 async function navigate(next, options = {}) {
+  if (route === 'wishlist' && state.wishlist?.busy) return;
+  if (route === 'wishlist' && wishlistDirty(state.wishlist) && !options.discardChanges) {
+    history.replaceState(null, '', href(route, params));
+    showWishlistDiscard(() => { void navigate(next, { ...options, discardChanges: true }); });
+    return;
+  }
+  clearWishlists();
   const parsed = parseHash(`#${next}`);
   next = parsed.route;
   const query = parsed.params;
@@ -294,6 +436,12 @@ async function navigate(next, options = {}) {
       const data = await loadGroup(params.get('id'));
       if (navigation !== version) return;
       rememberGroup(data);
+      if (route === 'wishlist') {
+        const dependentId = params.get('dependentId') || '';
+        const list = await api(wishlistPath(state.group.id, dependentId));
+        if (navigation !== version) return;
+        state.wishlist = { ...list, dependentId, items: list.items || [], originals: Object.fromEntries((list.items || []).map(item => [item.id, { ...item }])), deletedIds: [], busy: false, loadingMore: false, error: '' };
+      }
       if (organizerRoutes.has(route) && state.role !== 'organizer') { await navigate('group', { id: state.group.id, replace: true }); return; }
       if (['invite', 'draw-confirm', 'draw-running'].includes(route) && state.drawn) { await navigate('group', { id: state.group.id, replace: true }); return; }
       if (['drawn', 'reveal'].includes(route) && !state.drawn) { await navigate('group', { id: state.group.id, replace: true }); return; }
@@ -361,13 +509,15 @@ function responseEmails(value) { return Array.isArray(value) ? value.map(item =>
 async function submit(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  if (form.getAttribute('aria-busy') === 'true' || !form.reportValidity()) return;
+  if (form.getAttribute('aria-busy') === 'true' || (form.dataset.form !== 'wishlist-save' && !form.reportValidity())) return;
   const data = new FormData(form);
   const value = name => String(data.get(name) || '').trim();
   const type = form.dataset.form;
   lockForm(form, true);
   try {
-    if (type === 'create-dependent') {
+    if (type === 'wishlist-save') {
+      await saveWishlist();
+    } else if (type === 'create-dependent') {
       if (!state.user) return;
       const navigation = version, userId = state.user.id, returnGroup = state.dependentsReturnGroupId;
       try {
@@ -550,6 +700,18 @@ async function logout(keepInvitation = false) {
 }
 async function action(name, target) {
   switch (name) {
+    case 'wishlist-add': {
+      const list = state.wishlist; if (route !== 'wishlist' || !list || list.busy) return;
+      const item = emptyWishlistItem(); list.items.push(item); renderWishlistUpdate(`[id="wish-text-${item.id}"]`); break;
+    }
+    case 'wishlist-remove': {
+      const list = state.wishlist, id = target.dataset.itemId; if (route !== 'wishlist' || !list || list.busy) return;
+      if ((list.originals[id] || list.attemptedIds?.includes(id)) && !list.deletedIds.includes(id)) list.deletedIds.push(id);
+      list.items = list.items.filter(item => item.id !== id); renderWishlistUpdate('[data-action="wishlist-add"]'); break;
+    }
+    case 'wishlist-more': await loadMoreWishlist(); break;
+    case 'wishlist-recipient': await openRecipientWishlist(target.dataset.dependentId || ''); break;
+    case 'wishlist-recipient-more': await loadMoreRecipientWishlist(); break;
     case 'help': showHelp(); break;
     case 'delete-group': showDeleteGroup(); break;
     case 'admin-delete-group': await showAdminDelete('group'); break;
@@ -672,7 +834,7 @@ async function action(name, target) {
       if (!result.match?.name) throw new ApiError('RESULT_UNAVAILABLE', 'Seu resultado ainda não está disponível. Aguarde o sorteio.');
       state.match = result.match; state.dependentResults = result.dependentResults || []; state.revealed = true; render(); break;
     }
-    case 'hide-result': state.revealed = false; state.match = null; state.dependentResults = []; render(); break;
+    case 'hide-result': clearWishlists(); state.revealed = false; state.match = null; state.dependentResults = []; render(); break;
     case 'refresh-group': await navigate('group', { id: state.group?.id }); toast('Lista atualizada.'); break;
     case 'retry-notifications': {
       if (state.role !== 'organizer' || !state.group?.id) return;
@@ -688,7 +850,7 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }
@@ -718,6 +880,12 @@ function navigateFromHistory() {
   if (destination === href(route, params)) return;
   void navigate(destination.slice(1), { replace: true });
 }
+document.querySelector('#wishlist-recipient-dialog')?.addEventListener('close', () => {
+  const dialog = document.querySelector('#wishlist-recipient-dialog');
+  if (dialog?.open) return;
+  recipientWishlistRequest++; state.recipientWishlist = null; if (dialog) dialog.innerHTML = '';
+});
+window.addEventListener('beforeunload', event => { if (wishlistDirty(state.wishlist)) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('popstate', navigateFromHistory);
 window.addEventListener('hashchange', navigateFromHistory);
 setInterval(updateCountdown, 1000);

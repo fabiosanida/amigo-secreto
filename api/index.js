@@ -4,6 +4,7 @@ import { accountAvailability, clientIP, loginAuthentication, logout, rateLimit, 
 import { acceptGroupInvitation, acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, resendInvite, retryNotifications, trackOpen } from '../lib/groups.js';
 import { updateProfile } from '../lib/profile.js';
 import { createDependent, listDependents, setDependentParticipation } from '../lib/dependents.js';
+import { listWishlist, recipientWishlist, saveWishlist } from '../lib/wishlists.js';
 import { adminGroup, adminGroups, adminOverview, adminUser, adminUsers } from '../lib/admin.js';
 import { requireAdmin } from '../lib/admin-access.js';
 import { adminDeleteGroup, adminDeleteUser, adminGroupDeletePreview, adminUserDeletePreview } from '../lib/admin-delete.js';
@@ -113,6 +114,13 @@ export default async function handler(req, res) {
     if (parts[0] === 'invitations' && parts[2] === 'accept' && parts.length === 3 && method === 'POST') return send(res, 200, await acceptInvitation(user, parts[1]));
     if (parts[0] === 'groups') {
       const id = parts[1];
+      if (parts.length === 3 && parts[2] === 'wishlist') {
+        if (method === 'GET') return send(res, 200, await listWishlist(user, id, { dependentId: url.searchParams.get('dependentId'), cursor: url.searchParams.get('cursor') }));
+        if (method === 'POST') return send(res, 200, await saveWishlist(user, id, body));
+      }
+      if (parts.length === 4 && parts[2] === 'result' && parts[3] === 'wishlist' && method === 'GET') {
+        return send(res, 200, await recipientWishlist(user, id, { dependentId: url.searchParams.get('dependentId'), cursor: url.searchParams.get('cursor') }));
+      }
       if (parts.length === 2 && method === 'GET') return send(res, 200, await getGroup(user, id));
       if (parts.length === 4 && parts[2] === 'dependents' && method === 'POST') return send(res, 200, await setDependentParticipation(user, id, parts[3], body));
       if (parts.length === 3 && parts[2] === 'accept' && method === 'POST') return send(res, 200, await acceptGroupInvitation(user, id));
