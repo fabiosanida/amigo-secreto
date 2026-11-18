@@ -1,9 +1,9 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ApiError, query } from '../lib/db.js';
 import { accountAvailability, clientIP, loginAuthentication, logout, rateLimit, registerAuthentication, requestAuthentication, requestPasswordReset, resetPassword, sessionUser, verifyAuthentication, verifyPasswordReset } from '../lib/auth.js';
-import { acceptGroupInvitation, acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, resendInvite, retryNotifications, trackOpen, updateGroupDate } from '../lib/groups.js';
+import { acceptGroupInvitation, acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, removeParticipant, resendInvite, retryNotifications, trackOpen, updateGroupDate } from '../lib/groups.js';
 import { updateProfile } from '../lib/profile.js';
-import { createDependent, listDependents, setDependentParticipation } from '../lib/dependents.js';
+import { createDependent, createGroupDependent, listDependents, setDependentParticipation } from '../lib/dependents.js';
 import { listWishlist, recipientWishlist, saveWishlist } from '../lib/wishlists.js';
 import { adminGroup, adminGroups, adminOverview, adminUser, adminUsers } from '../lib/admin.js';
 import { requireAdmin } from '../lib/admin-access.js';
@@ -107,7 +107,7 @@ export default async function handler(req, res) {
       if (method === 'GET' && parts.length === 3 && parts[1] === 'users') return send(res, 200, await adminUser(user, parts[2], filters));
     }
     if (method === 'POST' && path === 'profile') { await rateLimit('profile', user.id, 30, 3600); return send(res, 200, await updateProfile(user, body)); }
-    if (path === 'dependents' && method === 'GET') return send(res, 200, await listDependents(user));
+    if (path === 'dependents' && method === 'GET') return send(res, 200, await listDependents(user, { groupId: url.searchParams.get('groupId'), cursor: url.searchParams.get('cursor') }));
     if (path === 'dependents' && method === 'POST') return send(res, 201, await createDependent(user, body));
     if (path === 'groups' && method === 'GET') return send(res, 200, await listGroups(user));
     if (path === 'groups' && method === 'POST') return send(res, 201, await createGroup(user, body));
@@ -123,7 +123,9 @@ export default async function handler(req, res) {
       }
       if (parts.length === 2 && method === 'GET') return send(res, 200, await getGroup(user, id));
       if (parts.length === 3 && parts[2] === 'date' && method === 'POST') return send(res, 200, await updateGroupDate(user, id, body));
+      if (parts.length === 3 && parts[2] === 'dependents' && method === 'POST') return send(res, 201, await createGroupDependent(user, id, body));
       if (parts.length === 4 && parts[2] === 'dependents' && method === 'POST') return send(res, 200, await setDependentParticipation(user, id, parts[3], body));
+      if (parts.length === 5 && parts[2] === 'participants' && parts[4] === 'remove' && method === 'POST') return send(res, 200, await removeParticipant(user, id, parts[3], body));
       if (parts.length === 3 && parts[2] === 'accept' && method === 'POST') return send(res, 200, await acceptGroupInvitation(user, id));
       if (parts.length === 3 && parts[2] === 'delete' && method === 'POST') return send(res, 200, await deleteGroup(user, id, body));
       if (parts.length === 3 && parts[2] === 'invites' && method === 'POST') return send(res, 200, await invitePeople(user, id, body));

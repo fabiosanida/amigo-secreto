@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { renderAuth, AUTH_ROUTES } from '../prototype/auth.js';
 import { renderGroups, GROUP_ROUTES } from '../prototype/groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from '../prototype/dependents.js';
@@ -16,7 +17,7 @@ function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {})
   const storage = new Map(stored);
   const noop = () => {};
   const context = {
-    URLSearchParams, TextEncoder, Date, Error, Map, Set, Promise, Number, String, Boolean, JSON, Math,
+    URLSearchParams, TextEncoder, Date, Error, Map, Set, Promise, Number, String, Boolean, JSON, Math, crypto: { randomUUID },
     FormData: class { constructor(form) { this.values = form.values; } get(name) { return this.values[name] ?? null; } },
     setTimeout: () => 0, clearTimeout: noop, setInterval: () => 0, location,
     sessionStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
@@ -316,6 +317,179 @@ function groupDateDialogFixture() {
   return { dialog, form, button, input, error, calendar, listeners };
 }
 
+function rosterDialogFixture() {
+  const listeners = {}, attributes = new Map(), button = { disabled: false, textContent: '', innerHTML: '' };
+  const firstName = { value: '  Nova  ', disabled: false }, lastName = { value: '  Pessoa  ', disabled: false };
+  const error = { textContent: '', scrollIntoView() {} };
+  const form = { elements: { firstName, lastName }, reportValidity: () => true,
+    getAttribute: key => attributes.get(key), setAttribute: (key, value) => attributes.set(key, value),
+    querySelector: selector => selector === 'button[type="submit"]' ? button : selector === '.form-error' ? error : null,
+    querySelectorAll: selector => selector === 'button' ? [button] : selector === 'input' ? [firstName, lastName] : [button, firstName, lastName],
+    addEventListener: (event, listener) => { listeners[event] = listener; },
+  };
+  let html = '';
+  const dialog = { get innerHTML() { return html; }, set innerHTML(value) { html = value; if (value) { attributes.clear(); button.disabled = false; } },
+    open: false, showModal() { this.open = true; }, close() { this.open = false; },
+    querySelector: selector => selector === 'form' ? form : selector === '[aria-busy="true"]' && attributes.get('aria-busy') === 'true' ? form : null,
+  };
+  return { dialog, form, button, firstName, lastName, error, listeners };
+}
+
+async function rosterHarness({ drawn = false, creator = true } = {}) {
+  const removal = rosterDialogFixture(), creation = rosterDialogFixture();
+  const h = harness({ hash: '#group?id=group-1', selectors: { '#remove-participant-dialog': removal.dialog, '#add-group-dependent-dialog': creation.dialog } });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  const group = { ...invitedGroup, drawn, organizerId: creator ? signedInUser.id : 'another-owner' };
+  const participants = [
+    { id: 'owner-member', userId: signedInUser.id, email: signedInUser.email, name: 'Pessoa Conectada', status: 'accepted', isOrganizer: creator },
+    { id: 'guardian-member', userId: 'guardian-user', name: 'Outra Pessoa', email: 'guardian@example.test', status: 'accepted' },
+    { id: 'guardian-child-member', dependentId: 'guardian-child', guardianId: 'guardian-user', isDependent: true, name: 'Filho de Outra Pessoa', responsibleName: 'Outra Pessoa', status: 'accepted' },
+    { id: 'own-child-member', dependentId: 'own-child', guardianId: signedInUser.id, isDependent: true, name: 'Meu Dependente', responsibleName: 'Pessoa Conectada', status: 'accepted' },
+  ];
+  const ownDependents = [{ id: 'own-child', firstName: 'Meu', lastName: 'Dependente', name: 'Meu Dependente', active: true, membershipId: 'own-child-member' }];
+  const payload = { group, role: creator ? 'organizer' : 'member', participants, ownDependents };
+  h.requests.find(request => request.path === '/api/groups/group-1').respond(payload); await tick();
+  return { ...h, removal, creation, group, payload };
+}
+
+test('roster management is creator-only before draw and opening or cancelling a confirmation never changes membership', async () => {
+  for (const options of [{ creator: false }, { drawn: true }]) {
+    const h = await rosterHarness(options); h.state.role = 'organizer';
+    await h.action('remove-participant', { dataset: { participantId: 'guardian-member' } });
+    await h.action('add-group-dependent', {});
+    assert(!h.removal.dialog.open); assert(!h.creation.dialog.open);
+    assert(!h.app.innerHTML.includes('data-action="remove-participant"')); assert(!h.app.innerHTML.includes('data-action="add-group-dependent"'));
+  }
+  const h = await rosterHarness(), before = h.requests.length;
+  await h.action('remove-participant', { dataset: { participantId: 'owner-member' } }); assert(!h.removal.dialog.open);
+  await h.action('remove-participant', { dataset: { participantId: 'guardian-member' } });
+  assert(h.removal.dialog.open); assert(h.removal.dialog.innerHTML.includes('Filho de Outra Pessoa')); assert(!h.removal.dialog.innerHTML.includes('Meu Dependente'));
+  await h.action('close-dialog', { closest: () => h.removal.dialog });
+  await h.action('add-group-dependent', {}); assert(h.creation.dialog.open);
+  assert(!h.creation.dialog.innerHTML.includes('name="email"')); assert(!h.creation.dialog.innerHTML.includes('name="password"'));
+  await h.action('close-dialog', { closest: () => h.creation.dialog });
+  assert.equal(h.requests.length, before); assert.equal(h.state.participants.length, 4);
+});
+
+test('confirmed guardian removal submits all affected slots once and updates roster counts without another read', async () => {
+  const h = await rosterHarness(); h.state.groups = [h.group];
+  await h.action('remove-participant', { dataset: { participantId: 'guardian-member' } });
+  const removing = h.removal.listeners.submit({ preventDefault() {} });
+  await h.removal.listeners.submit({ preventDefault() {} });
+  const writes = h.requests.filter(request => request.body); assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, '/api/groups/group-1/participants/guardian-member/remove');
+  assert.deepEqual(writes[0].body, { confirm: true, participantIds: ['guardian-member', 'guardian-child-member'] });
+  assert.equal(h.state.participants.length, 4); assert(h.removal.button.disabled);
+  await h.action('close-dialog', { closest: () => h.removal.dialog }); assert(h.removal.dialog.open);
+  writes[0].respond({ removedIds: ['guardian-child-member', 'guardian-member'] }); await removing;
+  assert.equal(h.state.participants.length, 2); assert.equal(h.state.group.acceptedCount, 2); assert.equal(h.state.groups[0].participantCount, 2);
+  assert.equal(h.state.ownDependents[0].active, true); assert(!h.removal.dialog.open); assert.equal(h.requests.length, 3);
+  await h.action('toggle-dependent', { dataset: { dependentId: 'own-child' } });
+  assert(h.removal.dialog.open, 'Creator withdrawal of own dependent also requires confirmation');
+  const withdrawing = h.removal.listeners.submit({ preventDefault() {} });
+  h.requests.at(-1).respond({ removedIds: ['own-child-member'] }); await withdrawing;
+  assert.equal(h.state.ownDependents[0].active, false); assert.equal(h.state.ownDependents[0].membershipId, null);
+  assert.equal(h.state.participants.length, 1);
+});
+
+test('a changed removal preview reloads participants and requires a fresh confirmation', async () => {
+  const h = await rosterHarness();
+  await h.action('remove-participant', { dataset: { participantId: 'guardian-member' } });
+  const removing = h.removal.listeners.submit({ preventDefault() {} });
+  h.requests.at(-1).respond({ error: { code: 'PARTICIPANTS_CHANGED', message: 'A lista mudou.' } }, 409); await tick();
+  assert(!h.removal.dialog.open); assert.equal(h.removal.dialog.innerHTML, '');
+  const refreshed = { ...h.payload, participants: [...h.payload.participants, { id: 'new-child-member', dependentId: 'new-child', guardianId: 'guardian-user', isDependent: true, name: 'Novo Dependente', status: 'accepted' }] };
+  h.requests.at(-1).respond(refreshed); await removing;
+  assert.equal(h.requests.filter(request => request.body).length, 1); assert.equal(h.state.participants.length, 5);
+  await h.action('remove-participant', { dataset: { participantId: 'guardian-member' } });
+  assert(h.removal.dialog.innerHTML.includes('Novo Dependente'));
+});
+
+test('dependent creation retries an uncertain result with the same identity and includes the confirmed child once', async () => {
+  const h = await rosterHarness(); h.state.groups = [h.group];
+  await h.action('add-group-dependent', {});
+  const creating = h.creation.listeners.submit({ preventDefault() {} });
+  await h.creation.listeners.submit({ preventDefault() {} });
+  const first = h.requests.at(-1); assert.equal(first.path, '/api/groups/group-1/dependents');
+  assert.equal(first.body.firstName, 'Nova'); assert.equal(first.body.lastName, 'Pessoa'); assert.match(first.body.id, /^[0-9a-f-]{36}$/);
+  assert.equal(h.requests.filter(request => request.body).length, 1);
+  first.reject(new Error('Connection lost')); await creating;
+  assert(h.creation.dialog.open); assert(h.creation.firstName.disabled); assert(h.creation.lastName.disabled); assert(!h.creation.button.disabled);
+  assert(h.creation.button.innerHTML.includes('Conferir inclusão')); assert.equal(h.state.participants.length, 4);
+  const retry = h.creation.listeners.submit({ preventDefault() {} });
+  const second = h.requests.at(-1); assert.deepEqual(second.body, first.body);
+  const dependent = { ...first.body, name: 'Nova Pessoa', active: true, membershipId: 'new-child-member' };
+  second.respond({ dependent, active: true }); await retry;
+  assert(!h.creation.dialog.open); assert.equal(h.state.participants.length, 5); assert.equal(h.state.group.acceptedCount, 5);
+  assert.equal(h.state.ownDependents.filter(item => item.id === dependent.id).length, 1);
+  assert.equal(h.state.dependents.filter(item => item.id === dependent.id).length, 1);
+  assert.equal(h.state.participants.find(item => item.id === 'new-child-member').guardianId, signedInUser.id);
+  assert.equal(h.requests.length, 4, 'No group reload or email request follows successful creation');
+});
+
+test('late roster mutation responses cannot restore group or dependent data after logout', async () => {
+  for (const kind of ['removal', 'creation']) {
+    const h = await rosterHarness();
+    await h.action(kind === 'removal' ? 'remove-participant' : 'add-group-dependent', { dataset: { participantId: 'guardian-member' } });
+    const fixture = h[kind], saving = fixture.listeners.submit({ preventDefault() {} }), write = h.requests.at(-1);
+    const leaving = h.action('logout', {}); h.requests.at(-1).respond({ ok: true }); await leaving;
+    write.respond(kind === 'removal' ? { removedIds: ['guardian-member', 'guardian-child-member'] } : { dependent: { ...write.body, active: true, membershipId: 'late-child' } }); await saving;
+    assert.equal(h.state.user, null); assert.equal(h.state.group, null); assert.equal(h.state.participants.length, 0);
+    assert.equal(h.state.ownDependents.length, 0); assert.equal(h.state.dependents.length, 0); assert.equal(fixture.dialog.innerHTML, '');
+  }
+});
+
+test('dependent pagination preserves the registration draft, deduplicates rows and uses the current group cursor', async () => {
+  const selectors = {}, h = harness({ hash: '#dependents', selectors });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  h.requests.at(-1).respond({ dependents: [childOne], nextCursor: 'catalog-cursor' }); await tick();
+  selectors['[data-form="create-dependent"]'] = fixtureForm('create-dependent', { firstName: 'Rascunho', lastName: 'Preservado' });
+  let markup = h.app.innerHTML;
+  Object.defineProperty(h.app, 'innerHTML', { get: () => markup, set(value) { markup = value; selectors['[data-form="create-dependent"]'] = fixtureForm('create-dependent', { firstName: '', lastName: '' }); } });
+  const loading = h.action('dependents-more', {}); await h.action('dependents-more', {});
+  assert.equal(h.requests.length, 3); assert.equal(h.requests.at(-1).path, '/api/dependents?cursor=catalog-cursor');
+  h.requests.at(-1).respond({ dependents: [childOne, childTwo], nextCursor: null }); await loading;
+  assert.deepEqual(Array.from(h.state.dependents, item => item.id), [childOne.id, childTwo.id]);
+  assert.equal(selectors['[data-form="create-dependent"]'].elements.firstName.value, 'Rascunho');
+  assert.equal(selectors['[data-form="create-dependent"]'].elements.lastName.value, 'Preservado');
+  assert.equal(h.state.dependentsNextCursor, null);
+
+  const roster = await rosterHarness(); roster.state.ownDependentsNextCursor = 'group-cursor';
+  const more = roster.action('group-dependents-more', {});
+  const request = roster.requests.at(-1); assert.equal(request.path, '/api/dependents?cursor=group-cursor&groupId=group-1');
+  const duplicate = { ...roster.state.ownDependents[0] };
+  request.respond({ dependents: [duplicate, childTwo], nextCursor: null }); await more;
+  assert.equal(roster.state.ownDependents.length, 2); assert.equal(roster.state.ownDependents[0].active, true);
+  assert.equal(roster.state.ownDependentsNextCursor, null);
+});
+
+test('a dependent page arriving after logout cannot repopulate the catalog', async () => {
+  const h = await rosterHarness(); h.state.ownDependentsNextCursor = 'group-cursor';
+  const loading = h.action('group-dependents-more', {}), pending = h.requests.at(-1);
+  const leaving = h.action('logout', {}); h.requests.at(-1).respond({ ok: true }); await leaving;
+  pending.respond({ dependents: [childTwo], nextCursor: 'more-private-data' }); await loading;
+  assert.equal(h.state.ownDependents.length, 0); assert.equal(h.state.ownDependentsNextCursor, null);
+  assert.equal(h.state.groupDependentsLoadingMore, false); assert(!h.app.innerHTML.includes(childTwo.name));
+});
+
+test('an older dependent page cannot reactivate a child removed while that page was loading', async () => {
+  const h = await rosterHarness();
+  const unseen = { id: 'page-two-child', firstName: 'Página', lastName: 'Dois', name: 'Página Dois', active: true, membershipId: 'page-two-member' };
+  h.state.participants.push({ id: unseen.membershipId, dependentId: unseen.id, guardianId: signedInUser.id,
+    name: unseen.name, isDependent: true, status: 'accepted', responsibleName: 'Pessoa Conectada' });
+  h.state.ownDependentsNextCursor = 'group-cursor';
+  const loading = h.action('group-dependents-more', {}), page = h.requests.at(-1);
+  await h.action('remove-participant', { dataset: { participantId: unseen.membershipId } });
+  const removing = h.removal.listeners.submit({ preventDefault() {} });
+  h.requests.at(-1).respond({ removedIds: [unseen.membershipId] }); await removing;
+  assert(!h.state.participants.some(person => person.id === unseen.membershipId));
+  page.respond({ dependents: [unseen], nextCursor: null }); await loading;
+  const catalogEntry = h.state.ownDependents.find(person => person.id === unseen.id);
+  assert(catalogEntry); assert.equal(catalogEntry.active, false); assert.equal(catalogEntry.membershipId, null);
+  assert.equal(h.state.groupDependentsLoadingMore, false); assert.equal(h.state.ownDependentsNextCursor, null);
+  assert(h.app.innerHTML.includes('Incluir Página Dois neste grupo'));
+});
+
 async function dateEditorHarness({ drawn = false, creator = true } = {}) {
   const fixture = groupDateDialogFixture(), h = harness({ hash: '#group?id=group-1', selectors: { '#group-date-dialog': fixture.dialog } });
   h.requests[0].respond({ user: signedInUser }); await tick();
@@ -498,7 +672,9 @@ const childOne = { id: 'child-1', firstName: 'Lia', lastName: 'Teste', name: 'Li
 const childTwo = { id: 'child-2', firstName: 'Caio', lastName: 'Teste', name: 'Caio Teste', createdAt: '2026-11-12T11:00:00Z' };
 const dependentGroupPayload = ({ drawn = false, active = false } = {}) => ({
   group: { ...invitedGroup, drawn, role: 'member', participantCount: active ? 4 : 3, acceptedCount: active ? 4 : 3 },
-  role: 'member', participants: [{ ...signedInUser, id: 'own-membership', userId: signedInUser.id, name: 'Pessoa Conectada', status: 'accepted' }],
+  role: 'member', participants: [{ ...signedInUser, id: 'own-membership', userId: signedInUser.id, name: 'Pessoa Conectada', status: 'accepted' },
+    ...(active ? [{ id: 'child-membership', userId: null, dependentId: childOne.id, guardianId: signedInUser.id, isDependent: true,
+      name: childOne.name, email: '', responsibleName: 'Pessoa Conectada', status: 'accepted' }] : [])],
   ownDependents: [{ ...childOne, active, membershipId: active ? 'child-membership' : null }, { ...childTwo, active: false, membershipId: null }], match: null,
 });
 const familyResults = {

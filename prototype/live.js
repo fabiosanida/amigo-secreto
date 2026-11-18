@@ -23,6 +23,7 @@ const storedChallenge = readChallenge();
 const state = {
   production: true, user: null, groups: [], pendingInvitations: [], acceptingInvitationId: '', dashboardInvitationErrors: {}, group: null, participants: [],
   dependents: [], ownDependents: [], dependentResults: [], dependentsReturnGroupId: '', dependentBusyId: '', dependentGroupError: '',
+  dependentsNextCursor: null, ownDependentsNextCursor: null, dependentsLoadingMore: false, groupDependentsLoadingMore: false,
   wishlist: null, recipientWishlist: null,
   marmeladaData: null, marmeladaSearch: '',
   adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
@@ -181,8 +182,10 @@ function clearAdmin() {
 }
 function clearPrivateState() {
   clearGroupDateEditor();
+  clearRosterDialogs();
   clearWishlists();
   state.dependents = []; state.ownDependents = []; state.dependentsReturnGroupId = ''; state.dependentBusyId = ''; state.dependentGroupError = '';
+  state.dependentsNextCursor = null; state.ownDependentsNextCursor = null; state.dependentsLoadingMore = false; state.groupDependentsLoadingMore = false;
   clearAdmin(); state.groups = []; state.pendingInvitations = []; state.acceptingInvitationId = ''; state.dashboardInvitationErrors = {}; state.group = null; state.participants = []; state.match = null; state.revealed = false; state.dependentResults = []; state.drawn = false; state.role = 'member'; state.inviteEmails = []; state.inviteQueued = []; setAvatarDirectory([]);
 }
 function clearChallenge() {
@@ -209,6 +212,7 @@ function rememberGroup(data) {
   const group = data.group || data;
   state.group = group;
   state.ownDependents = data.ownDependents || group.ownDependents || []; state.dependentGroupError = '';
+  state.ownDependentsNextCursor = data.ownDependentsNextCursor || null; state.groupDependentsLoadingMore = false;
   state.participants = data.participants || group.participants || [];
   state.role = data.role || group.role || (group.organizerId === state.user?.id ? 'organizer' : 'member');
   state.organizerEmail = data.organizerEmail || group.organizerEmail || state.participants.find(person => person.isOrganizer)?.email || '';
@@ -357,6 +361,7 @@ async function navigate(next, options = {}) {
     return;
   }
   clearGroupDateEditor();
+  clearRosterDialogs();
   clearWishlists();
   const parsed = parseHash(`#${next}`);
   next = parsed.route;
@@ -429,6 +434,7 @@ async function navigate(next, options = {}) {
       const result = await api('/dependents');
       if (navigation !== version) return;
       state.dependents = result.dependents || [];
+      state.dependentsNextCursor = result.nextCursor || null; state.dependentsLoadingMore = false;
     } else if (route === 'dashboard' || route === 'dashboard-empty') {
       const result = await api('/groups');
       if (navigation !== version) return;
@@ -705,6 +711,139 @@ function showGroupDateEditor() {
   });
   dialog.showModal();
 }
+function clearRosterDialogs() {
+  for (const id of ['#remove-participant-dialog', '#add-group-dependent-dialog']) {
+    const dialog = document.querySelector(id); dialog?.close(); if (dialog) dialog.innerHTML = '';
+  }
+}
+function rosterEditable() {
+  return Boolean(state.user?.id && state.group?.organizerId === state.user.id && !state.drawn && !state.group.drawn && ['group', 'group-member'].includes(route));
+}
+function renderRosterUpdate() {
+  const people = state.participants;
+  state.group = { ...state.group, participantCount: people.length, acceptedCount: people.filter(person => person.status === 'accepted').length,
+    pendingCount: people.filter(person => ['sent', 'delivered', 'opened'].includes(person.status)).length,
+    failedCount: people.filter(person => person.status === 'failed').length };
+  state.groups = state.groups.map(group => group.id === state.group.id ? { ...group, ...state.group } : group);
+  const scroll = window.scrollY; render(); window.scrollTo({ top: scroll, behavior: 'instant' });
+}
+function showParticipantRemoval(memberId) {
+  if (!rosterEditable() || state.dependentBusyId) return;
+  const group = state.group, userId = state.user.id, navigation = version;
+  const person = state.participants.find(item => item.id === memberId);
+  if (!person || person.isOrganizer || person.userId === userId) return;
+  const affected = state.participants.filter(item => item.id === memberId || (person.userId && item.dependentId && item.guardianId === person.userId));
+  const ids = affected.map(item => item.id), dialog = document.querySelector('#remove-participant-dialog');
+  if (!dialog) return;
+  clearRosterDialogs();
+  dialog.innerHTML = `<form class="roster-form"><div class="roster-dialog-heading"><span class="roster-dialog-symbol roster-dialog-warning">${icon('users', 24)}</span><button type="button" class="btn btn-secondary roster-dialog-close" data-action="close-dialog" aria-label="Fechar remoção de participante">${icon('x', 20)}</button></div><span class="eyebrow">REVISE QUEM VAI SAIR</span><h2 id="remove-participant-title">Remover ${affected.length > 1 ? 'estas pessoas' : 'esta pessoa'} do grupo?</h2><p>${affected.length > 1 ? 'Este responsável e os dependentes abaixo sairão' : 'Esta pessoa sairá'} de <strong>${escapeHtml(group.name)}</strong> e não ${affected.length > 1 ? 'participarão' : 'participará'} do sorteio.</p><ul class="roster-removal-list">${affected.map(item => `<li><span>${icon(item.dependentId ? 'heart' : 'users', 18)}</span><div><strong>${escapeHtml(item.name)}</strong><small>${item.dependentId ? `Dependente de ${escapeHtml(item.responsibleName || person.name)}` : escapeHtml(item.email || 'Participante confirmado')}</small></div></li>`).join('')}</ul><div class="roster-dialog-note">${icon('info', 18)}<p>Os cadastros e as participações em outros grupos continuam. Os convites e as sugestões de presentes destas pessoas neste grupo serão removidos.${affected.length > 1 ? ' Os dependentes saem junto com o responsável.' : ''}</p></div><div class="roster-dialog-actions"><button type="button" class="btn btn-secondary" data-action="close-dialog">Cancelar</button><button type="submit" class="btn btn-danger">Remover do grupo</button></div></form>`;
+  const form = dialog.querySelector('form'), button = form.querySelector('button[type="submit"]');
+  const stillCurrent = () => navigation === version && state.user?.id === userId && state.group?.id === group.id && dialog.open && dialog.querySelector('form') === form;
+  dialog.oncancel = event => { if (form.getAttribute('aria-busy') === 'true') event.preventDefault(); };
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!stillCurrent() || !rosterEditable() || form.getAttribute('aria-busy') === 'true') return;
+    form.setAttribute('aria-busy', 'true'); form.querySelectorAll('button').forEach(item => { item.disabled = true; }); button.textContent = 'Removendo…';
+    try {
+      const result = await post(`/groups/${segment(group.id)}/participants/${segment(memberId)}/remove`, { confirm: true, participantIds: ids });
+      if (!stillCurrent()) return;
+      if (!Array.isArray(result.removedIds) || ids.some(id => !result.removedIds.includes(id)) || result.removedIds.some(id => !ids.includes(id))) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar a remoção. Atualize a lista para conferir.');
+      state.participants = state.participants.filter(item => !ids.includes(item.id));
+      state.ownDependents = state.ownDependents.map(item => ids.includes(item.membershipId) ? { ...item, active: false, membershipId: null } : item);
+      state.dependentGroupError = ''; clearRosterDialogs(); renderRosterUpdate();
+      toast(affected.length > 1 ? 'Responsável e dependentes removidos deste grupo.' : 'Participante removido deste grupo.');
+    } catch (error) {
+      if (!stillCurrent()) return;
+      if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+      if (['PARTICIPANTS_CHANGED', 'GROUP_DRAWN', 'PARTICIPANT_NOT_FOUND', 'NOT_FOUND'].includes(error.code)) {
+        await navigate('group', { id: group.id }); toast(error.code === 'PARTICIPANTS_CHANGED' ? 'A lista mudou. Confira os participantes e abra a confirmação novamente.' : errorMessage(error)); return;
+      }
+      formError(form, errorMessage(error));
+    } finally {
+      if (stillCurrent()) { form.setAttribute('aria-busy', 'false'); form.querySelectorAll('button').forEach(item => { item.disabled = false; }); button.textContent = 'Remover do grupo'; }
+    }
+  });
+  dialog.showModal();
+}
+function showAddGroupDependent() {
+  if (!rosterEditable() || state.dependentBusyId) return;
+  const group = state.group, user = state.user, navigation = version, id = crypto.randomUUID();
+  const dialog = document.querySelector('#add-group-dependent-dialog');
+  if (!dialog) return;
+  clearRosterDialogs();
+  dialog.innerHTML = `<form class="roster-form"><div class="roster-dialog-heading"><span class="roster-dialog-symbol">${icon('heart', 24)}</span><button type="button" class="btn btn-secondary roster-dialog-close" data-action="close-dialog" aria-label="Fechar cadastro de dependente">${icon('x', 20)}</button></div><span class="eyebrow">TEM LUGAR PARA TODO MUNDO</span><h2 id="add-group-dependent-title">Mais alguém na brincadeira.</h2><p>Cadastre um dependente e inclua em <strong>${escapeHtml(group.name)}</strong> de uma vez.</p><label class="field" for="group-dependent-first-name">Nome<input id="group-dependent-first-name" name="firstName" required maxlength="80" autocomplete="off" placeholder="Nome do dependente"></label><label class="field" for="group-dependent-last-name">Sobrenome<input id="group-dependent-last-name" name="lastName" required maxlength="120" autocomplete="off" placeholder="Sobrenome do dependente"></label><div class="roster-dialog-note">${icon('check-circle', 19)}<p>Sem e-mail nem senha. A participação já fica confirmada e você será o responsável por acompanhar os avisos e o resultado deste dependente.</p></div><div class="roster-dialog-actions"><button type="button" class="btn btn-secondary" data-action="close-dialog">Cancelar</button><button type="submit" class="btn btn-primary">${icon('plus', 17)} Cadastrar e incluir</button></div></form>`;
+  const form = dialog.querySelector('form'), button = form.querySelector('button[type="submit"]');
+  let submitted = null;
+  const stillCurrent = () => navigation === version && state.user?.id === user.id && state.group?.id === group.id && dialog.open && dialog.querySelector('form') === form;
+  dialog.oncancel = event => { if (form.getAttribute('aria-busy') === 'true') event.preventDefault(); };
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!stillCurrent() || !rosterEditable() || form.getAttribute('aria-busy') === 'true' || !form.reportValidity()) return;
+    const payload = submitted || { id, firstName: form.elements.firstName.value.trim(), lastName: form.elements.lastName.value.trim() };
+    if (!payload.firstName || !payload.lastName) { formError(form, 'Preencha o nome e o sobrenome do dependente.'); return; }
+    form.setAttribute('aria-busy', 'true'); form.querySelectorAll('button,input').forEach(item => { item.disabled = true; }); button.textContent = 'Incluindo…';
+    try {
+      submitted = payload;
+      const result = await post(`/groups/${segment(group.id)}/dependents`, payload);
+      if (!stillCurrent()) return;
+      const child = result.dependent;
+      if (child?.id !== id || !child.membershipId || child.active !== true) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar a inclusão. Tente novamente para conferir o cadastro.');
+      state.ownDependents = [...state.ownDependents.filter(item => item.id !== child.id), child];
+      state.dependents = [...state.dependents.filter(item => item.id !== child.id), child];
+      if (!state.participants.some(item => item.id === child.membershipId)) state.participants.push({ id: child.membershipId, invitationId: null, userId: null,
+        name: child.name || `${child.firstName} ${child.lastName}`, email: '', status: 'accepted', avatar: null, isOrganizer: false,
+        dependentId: child.id, isDependent: true, guardianId: user.id, responsibleName: `${user.firstName} ${user.lastName}` });
+      state.dependentGroupError = ''; clearRosterDialogs(); renderRosterUpdate(); toast('Dependente cadastrado e incluído neste amigo secreto.');
+    } catch (error) {
+      if (!stillCurrent()) return;
+      if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+      if (error.code === 'GROUP_DRAWN') { await navigate('group', { id: group.id }); toast(errorMessage(error)); return; }
+      if (error.status >= 400 && error.status < 500) submitted = null;
+      formError(form, errorMessage(error));
+    } finally {
+      if (stillCurrent()) {
+        form.setAttribute('aria-busy', 'false'); form.querySelectorAll('button').forEach(item => { item.disabled = false; });
+        // An uncertain response may follow a committed creation; retry the same
+        // identity and names until confirmed, without creating another person.
+        form.querySelectorAll('input').forEach(item => { item.disabled = Boolean(submitted); });
+        button.innerHTML = `${icon('plus', 17)} ${submitted ? 'Conferir inclusão' : 'Cadastrar e incluir'}`;
+      }
+    }
+  });
+  dialog.showModal();
+}
+function renderDependentUpdate() {
+  const form = route === 'dependents' ? document.querySelector('[data-form="create-dependent"]') : null;
+  const draft = form ? { firstName: form.elements.firstName.value, lastName: form.elements.lastName.value } : null;
+  const scroll = window.scrollY; render(); window.scrollTo({ top: scroll, behavior: 'instant' });
+  const nextForm = draft ? document.querySelector('[data-form="create-dependent"]') : null;
+  if (nextForm) for (const [name, value] of Object.entries(draft)) nextForm.elements[name].value = value;
+}
+async function loadMoreDependents(inGroup = false) {
+  const key = inGroup ? 'ownDependents' : 'dependents', cursorKey = inGroup ? 'ownDependentsNextCursor' : 'dependentsNextCursor';
+  const busyKey = inGroup ? 'groupDependentsLoadingMore' : 'dependentsLoadingMore';
+  const cursor = state[cursorKey], navigation = version, userId = state.user?.id, groupId = inGroup ? state.group?.id : '';
+  if (!userId || !cursor || state[busyKey] || (inGroup ? !groupId || !['group', 'group-member'].includes(route) : route !== 'dependents')) return;
+  const stillCurrent = () => navigation === version && state.user?.id === userId && state[cursorKey] === cursor && (inGroup ? state.group?.id === groupId : route === 'dependents');
+  const query = new URLSearchParams({ cursor }); if (inGroup) query.set('groupId', groupId);
+  state[busyKey] = true; renderDependentUpdate();
+  try {
+    const result = await api(`/dependents?${query}`);
+    if (!stillCurrent()) return;
+    const known = new Set(state[key].map(item => item.id));
+    const incoming = (result.dependents || []).filter(item => !known.has(item.id)).map(item => {
+      if (!inGroup) return item;
+      const membership = state.participants.find(person => person.dependentId === item.id && person.guardianId === userId);
+      return { ...item, active: Boolean(membership), membershipId: membership?.id || null };
+    });
+    state[key].push(...incoming); state[cursorKey] = result.nextCursor || null;
+    state[busyKey] = false; renderDependentUpdate();
+  } catch (error) {
+    if (!stillCurrent()) return;
+    if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
+    toast(errorMessage(error));
+  } finally { if (stillCurrent()) { state[busyKey] = false; renderDependentUpdate(); } }
+}
 function showDeleteGroup() {
   if (state.role !== 'organizer' || !state.group?.id) return;
   const group = { id: state.group.id, name: state.group.name };
@@ -766,6 +905,10 @@ async function action(name, target) {
     case 'wishlist-recipient-more': await loadMoreRecipientWishlist(); break;
     case 'help': showHelp(); break;
     case 'edit-group-date': showGroupDateEditor(); break;
+    case 'remove-participant': showParticipantRemoval(target.dataset.participantId); break;
+    case 'add-group-dependent': showAddGroupDependent(); break;
+    case 'dependents-more': await loadMoreDependents(); break;
+    case 'group-dependents-more': await loadMoreDependents(true); break;
     case 'delete-group': showDeleteGroup(); break;
     case 'admin-delete-group': await showAdminDelete('group'); break;
     case 'admin-delete-user': await showAdminDelete('user'); break;
@@ -849,6 +992,7 @@ async function action(name, target) {
       const dependentId = target.dataset.dependentId, groupId = state.group?.id;
       const dependent = state.ownDependents.find(item => item.id === dependentId);
       if (!state.user || !groupId || !dependent || state.drawn || state.dependentBusyId) return;
+      if (dependent.active && state.group.organizerId === state.user.id) { showParticipantRemoval(dependent.membershipId); return; }
       const active = !dependent.active, navigation = version, userId = state.user.id;
       const stillCurrent = () => version === navigation && state.user?.id === userId && state.group?.id === groupId;
       state.dependentBusyId = dependentId; state.dependentGroupError = ''; render();
@@ -903,7 +1047,7 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['edit-group-date', 'wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['remove-participant', 'add-group-dependent', 'dependents-more', 'group-dependents-more', 'edit-group-date', 'wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }
