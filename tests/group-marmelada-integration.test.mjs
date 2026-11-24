@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import handler from '../api/index.js';
-import { hashToken, newToken } from '../lib/auth.js';
+import { hashCode, hashToken, newToken } from '../lib/auth.js';
 import { getPool, query, transaction } from '../lib/db.js';
 
 test('group Marmelada checks one announced pair using the drawn giver’s private token', {
@@ -79,15 +79,25 @@ test('group Marmelada checks one announced pair using the drawn giver’s privat
         assert.equal(issued.status, 201);
         assert.match(issued.data.token, /^\d{8}$/);
         assert.match(issued.cache, /no-store/);
-        const row = (await query('SELECT token_hash, failed_attempts FROM as_marmelada_tokens WHERE group_id=$1 AND giver_id=$2', [g.id, membershipId])).rows[0];
+        const row = (await query(`SELECT token_hash,token_ciphertext,failed_attempts,expires_at='infinity' AS no_expiry
+          FROM as_marmelada_tokens WHERE group_id=$1 AND giver_id=$2`, [g.id, membershipId])).rows[0];
         assert.match(row.token_hash, /^[a-f0-9]{64}$/);
         assert.notEqual(row.token_hash, issued.data.token);
+        assert.notEqual(row.token_ciphertext, issued.data.token);
+        assert.equal(row.no_expiry, true);
         assert.equal(row.failed_attempts, 0);
+        assert.deepEqual((await issue(g, account, membershipId)).data, { token: issued.data.token });
       }
     });
 
     await t.test('token belongs to the exact group and participant and either verdict consumes it', async () => {
-      const code = (await issue(g, a, ana)).data.token;
+      const issued = await Promise.all([issue(g, a, ana), issue(g, a, ana)]);
+      const code = issued[0].data.token;
+      for (const response of issued) {
+        assert.equal(response.status, 201);
+        assert.match(response.data.token, /^\d{8}$/);
+        assert.deepEqual(response.data, { token: code });
+      }
       const otherCode = (await issue(other, a, other.ids[1])).data.token;
       assert.notEqual(otherCode, code);
       assert.equal((await check(g, a, ana, bruno, code)).status, 404);
@@ -99,23 +109,41 @@ test('group Marmelada checks one announced pair using the drawn giver’s privat
       assert.equal(wrong.status, 200);
       assert.deepEqual(wrong.data, { matches: false });
       assert.equal((await check(g, host, ana, bruno, code)).status, 422);
-      const fresh = (await issue(g, a, ana)).data.token;
-      assert.notEqual(fresh, code);
-      const answers = await Promise.all([check(g, host, ana, bruno, fresh), check(g, host, ana, bruno, fresh)]);
+      assert.equal((await issue(g, a, ana)).status, 409);
+      const answers = await Promise.all([
+        check(other, host, other.ids[1], other.ids[2], otherCode),
+        check(other, host, other.ids[1], other.ids[2], otherCode),
+      ]);
       assert.deepEqual(answers.map(x => x.status).sort(), [200, 422]);
       assert.deepEqual(answers.find(x => x.status === 200).data, { matches: true });
+      assert.equal((await issue(other, a, other.ids[1])).status, 409);
     });
 
-    await t.test('rotation, expiry and failed guesses stop disclosure', async () => {
-      const old = (await issue(g, a, ana)).data.token, fresh = (await issue(g, a, ana)).data.token;
-      assert.notEqual(old, fresh);
-      for (let i = 0; i < 5; i++) assert.equal((await check(g, host, ana, bruno, old)).status, 422);
-      assert.equal((await check(g, host, ana, bruno, fresh)).status, 422);
-      const expired = (await issue(g, a, ana)).data.token;
-      await query("UPDATE as_marmelada_tokens SET expires_at=now()-interval '1 minute' WHERE group_id=$1 AND giver_id=$2", [g.id, ana]);
-      assert.equal((await check(g, host, ana, bruno, expired)).status, 422);
-      assert.equal((await check(g, host, ana, bruno, '12')).status, 400);
-      assert.equal((await check(waiting, host, waiting.ids[1], waiting.ids[2], expired)).status, 404);
+    await t.test('failed guesses pause checks without changing or consuming the token', async () => {
+      const code = (await issue(g, host, hostSlot)).data.token;
+      const invalid = code === '00000000' ? '00000001' : '00000000';
+      for (let i = 0; i < 5; i++) assert.equal((await check(g, host, hostSlot, ana, invalid)).status, 422);
+      assert.equal((await check(g, host, hostSlot, ana, code)).status, 422);
+      assert.deepEqual((await issue(g, host, hostSlot)).data, { token: code });
+      await query("UPDATE as_marmelada_tokens SET attempts_reset_at=now()-interval '1 hour' WHERE group_id=$1 AND giver_id=$2", [g.id, hostSlot]);
+      const verified = await check(g, host, hostSlot, ana, code);
+      assert.equal(verified.status, 200);
+      assert.deepEqual(verified.data, { matches: true });
+      assert.equal((await check(g, host, hostSlot, ana, '12')).status, 400);
+      assert.equal((await check(waiting, host, waiting.ids[1], waiting.ids[2], code)).status, 404);
+    });
+
+    await t.test('an unused legacy token is replaced once and a used legacy token stays used', async () => {
+      const legacyOpen = '91710001', legacyUsed = '91710002';
+      await query(`INSERT INTO as_marmelada_tokens(group_id,giver_id,token_hash,expires_at,used_at)
+        VALUES($1,$2,$3,now()-interval '1 day',NULL),($1,$4,$5,now()-interval '1 day',now()-interval '2 days')`,
+      [other.id, other.ids[2], hashCode('group-marmelada', legacyOpen), other.ids[0], hashCode('group-marmelada', legacyUsed)]);
+      assert.equal((await check(other, host, other.ids[2], other.ids[3], legacyOpen)).status, 422);
+      const first = await issue(other, b, other.ids[2]);
+      assert.equal(first.status, 201);
+      assert.deepEqual((await issue(other, b, other.ids[2])).data, first.data);
+      assert.equal((await issue(other, host, other.ids[0])).status, 409);
+      assert.equal((await check(other, host, other.ids[2], other.ids[3], first.data.token)).status, 200);
     });
   } finally {
     await new Promise(resolve => server.close(resolve));

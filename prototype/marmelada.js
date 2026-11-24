@@ -79,14 +79,14 @@ export function renderMarmeladaTokenDialog(people) {
   return `<form class="account-tool-panel" data-marmelada-token-form>
     <span class="auth-form-symbol">${icon('lock', 23)}</span>
     <h2 id="marmelada-token-title">Meu token da troca</h2>
-    <p>Gere o token quando você for revelar seu amigo secreto. Diga o código a quem estiver conduzindo a troca. Ele vale por 15 minutos ou até a primeira conferência.</p>
+    <p>Seu código é fixo neste amigo secreto e fica disponível até ser usado. Diga o token a quem estiver conduzindo a troca na hora da sua revelação.</p>
     ${people.length > 1 ? `<label class="field" for="marmelada-token-person">Token para
       <select id="marmelada-token-person" name="membershipId" required>${people.map(option).join('')}</select>
     </label>` : `<input type="hidden" name="membershipId" value="${escape(people[0].id)}">`}
     <output class="marmelada-token-value" data-marmelada-token-value aria-live="polite" hidden></output>
     <div class="account-tool-actions">
       <button type="button" class="btn btn-secondary" data-action="close-dialog">Fechar</button>
-      <button type="submit" class="btn btn-primary">Gerar token</button>
+      <button type="submit" class="btn btn-primary">Ver meu token</button>
     </div>
   </form>`;
 }

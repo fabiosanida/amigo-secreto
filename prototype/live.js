@@ -1104,14 +1104,17 @@ function showOwnMarmeladaToken() {
   const choice = form.elements.membershipId, output = form.querySelector('[data-marmelada-token-value]');
   const button = form.querySelector('[type="submit"]');
   const current = () => dialog.open && form.isConnected && !state.viewAs && state.user?.id === userId && state.group?.id === groupId && navigation === version;
-  const clear = () => { output.textContent = ''; output.hidden = true; button.textContent = 'Gerar token'; };
+  const clear = () => {
+    output.textContent = '';
+    output.hidden = true;
+    form.querySelector('.form-error')?.remove();
+  };
   choice.addEventListener('change', clear);
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (!current() || form.getAttribute('aria-busy') === 'true') return;
     const membershipId = choice.value;
     if (!people.some(person => person.id === membershipId)) return;
-    form.querySelector('.form-error')?.remove();
     clear();
     form.setAttribute('aria-busy', 'true');
     choice.disabled = true; button.disabled = true;
@@ -1121,7 +1124,6 @@ function showOwnMarmeladaToken() {
       if (!/^\d{8}$/.test(result.token)) throw new ApiError('INVALID_RESPONSE', 'Não foi possível exibir o token.');
       output.textContent = `${result.token.slice(0, 4)} ${result.token.slice(4)}`;
       output.hidden = false;
-      button.textContent = 'Gerar outro token';
     } catch (error) {
       if (!current()) return;
       if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); }
