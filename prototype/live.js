@@ -8,6 +8,7 @@ import { renderDependents, DEPENDENT_ROUTES } from './dependents.js';
 import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem, setupWishlistFields, showWishlistDiscard } from './wishlist.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from './admin.js';
 import { showMarmeladaResult } from './marmelada.js';
+import { cancelPasskey, renderPasskeyOffer, renderViewAsBanner, renderViewAsPicker, renderViewAsResults, supportsPasskeys, usePasskey } from './account-tools.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
 
 const INVITE_KEY = 'amigo-secreto:invitation';
@@ -25,7 +26,7 @@ const state = {
   dependents: [], ownDependents: [], dependentResults: [], dependentsReturnGroupId: '', dependentBusyId: '', dependentGroupError: '',
   dependentsNextCursor: null, ownDependentsNextCursor: null, dependentsLoadingMore: false, groupDependentsLoadingMore: false,
   wishlist: null, recipientWishlist: null, drawGuide: null,
-  marmeladaData: null, marmeladaSearch: '',
+  marmeladaData: null, marmeladaSearch: '', previewUser: null,
   adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
   role: 'member', organizerEmail: '', drawn: false, revealed: false, match: null,
   invitation: null, inviteToken: storage.get(INVITE_KEY) || '',
@@ -34,11 +35,13 @@ const state = {
   authMode: storedChallenge?.purpose === 'recover' ? 'recover' : storedChallenge ? 'register' : 'login', authEmail: storedChallenge?.email || '', accountCheck: null, resetToken: '', resendAt: Number(storedChallenge?.resendAt) || 0, requestPayload: null,
 };
 const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal', ...WISHLIST_ROUTES]);
+const viewAsRoutes = new Set(['dashboard', 'dashboard-empty', 'group', 'group-member', 'gift-ideas', 'dependents', 'reveal']);
+const viewAsActions = new Set(['exit-view-as', 'help', 'close-dialog', 'refresh-group', 'retry-route', 'wishlist-participant', 'wishlist-recipient-more', 'group-dependents-more', 'dependents-more']);
 const organizerRoutes = new Set(['invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn']);
 const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
 const signedRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
 let route = 'welcome', params = new URLSearchParams(), version = 0, toastTimer;
-let busyDraw = false, sessionLoaded = false;
+let busyDraw = false, sessionLoaded = false, passkeyLoginRunning = false, viewAsSearchVersion = 0;
 let pendingMagicVerification = null, recipientWishlistRequest = 0;
 const pendingActions = new Set();
 const titles = { 'gift-ideas': 'Sugestões do grupo', wishlist: 'Minhas sugestões', dependents: 'Meus dependentes', 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
@@ -47,6 +50,10 @@ class ApiError extends Error {
   constructor(code, message, status, payload) { super(message); this.code = code; this.status = status; this.payload = payload; }
 }
 async function api(path, options = {}) {
+  if (state.previewUser) {
+    if (options.method && options.method !== 'GET') throw new ApiError('PREVIEW_READ_ONLY', 'Este modo é somente leitura.', 405);
+    path = `/admin/view-as/${segment(state.previewUser.id)}${path}`;
+  }
   let response;
   try {
     response = await fetch(`/api${path}`, { credentials: 'same-origin', ...options, headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }, body: options.body ? JSON.stringify(options.body) : undefined });
@@ -77,14 +84,17 @@ function errorMessage(error) {
   return messages[error?.code] || error?.message || 'Não foi possível concluir agora. Tente novamente.';
 }
 function currentUser() {
-  return state.user || state.pendingUser || { firstName: '', lastName: '', email: state.challenge?.email || '', avatar: '' };
+  return state.previewUser || state.user || state.pendingUser || { firstName: '', lastName: '', email: state.challenge?.email || '', avatar: '' };
 }
 function viewState() {
-  return { ...state, user: currentUser(), group: state.group || { name: '', date: '', budget: 0, location: '', description: '' }, inviterName: state.invitation?.inviterName || state.group?.organizerName || '', verified: Boolean(state.user) };
+  return { ...state, user: currentUser(), group: state.group || { name: '', date: '', budget: 0, location: '', description: '' }, inviterName: state.invitation?.inviterName || state.group?.organizerName || '', verified: Boolean(state.user), passkeysSupported: supportsPasskeys() };
 }
 function shell(content) {
   const user = currentUser();
-  return `<header class="app-header"><a class="app-brand-link" href="#dashboard" data-route="dashboard" aria-label="Amigo Secreto, meus grupos">${brand()}</a><nav class="app-nav" aria-label="Navegação principal"><button class="${ADMIN_ROUTES.includes(route) ? '' : 'active'}" data-route="dashboard">Meus grupos</button>${state.user?.isAdmin ? `<button class="${ADMIN_ROUTES.includes(route) ? 'active' : ''}" data-route="admin">Administração</button>` : ''}<button data-action="help">Como funciona</button></nav><div class="app-account">${state.user?.isAdmin ? `<button class="btn btn-secondary admin-mobile-nav" data-route="admin" aria-label="Administração">${icon('shield', 17)}</button>` : ''}<span class="account-name">${escapeHtml(user.firstName)}</span><button data-action="profile" aria-label="Minha conta">${avatar(`${user.firstName} ${user.lastName}`, 0, '', user.avatar ?? null)}</button></div></header><main id="main" class="app-main transition-in" tabindex="-1">${content}</main><footer class="app-footer"><span>${icon('heart', 13)} Gente querida. Boas surpresas.</span><button data-action="help">Feito para aproximar.</button></footer>`;
+  const canViewAs = state.user?.isAdmin && !state.previewUser;
+  const photo = avatar(`${user.firstName} ${user.lastName}`, 0, '', user.avatar ?? null);
+  const profile = state.previewUser ? `<span class="view-as-avatar">${photo}</span>` : `<button data-action="profile" aria-label="Minha conta">${photo}</button>`;
+  return `<header class="app-header"><a class="app-brand-link" href="#dashboard" data-route="dashboard" aria-label="Amigo Secreto, meus grupos">${brand()}</a><nav class="app-nav" aria-label="Navegação principal"><button class="${ADMIN_ROUTES.includes(route) ? '' : 'active'}" data-route="dashboard">Meus grupos</button>${canViewAs ? `<button class="${ADMIN_ROUTES.includes(route) ? 'active' : ''}" data-route="admin">Administração</button>` : ''}<button data-action="help">Como funciona</button></nav><div class="app-account">${canViewAs ? `<button class="btn btn-secondary admin-mobile-nav" data-route="admin" aria-label="Administração">${icon('shield', 17)}</button><button type="button" class="view-as-button" data-action="view-as" aria-haspopup="dialog">${icon('monitor', 16)} Visualizar como</button>` : ''}<span class="account-name">${escapeHtml(user.firstName)}</span>${profile}</div></header>${renderViewAsBanner(state.previewUser)}<main id="main" class="app-main transition-in" tabindex="-1">${content}</main><footer class="app-footer"><span>${icon('heart', 13)} Gente querida. Boas surpresas.</span><button data-action="help">Feito para aproximar.</button></footer>`;
 }
 function loading() {
   const content = `<section class="auth-success-card" aria-live="polite"><span class="auth-form-symbol">${icon('gift', 27)}</span><h1>Um instante.</h1><p>Estamos preparando tudo para você.</p></section>`;
@@ -111,6 +121,15 @@ function render() {
     if (destination.startsWith('invitation') && state.inviteToken) query.set('token', state.inviteToken);
     link.href = href(destination, query);
   });
+  if (state.previewUser) {
+    document.querySelectorAll('#app [data-route], #app [data-action]').forEach(control => {
+      if (control.dataset.route ? viewAsRoutes.has(parseHash(`#${control.dataset.route}`).route) : viewAsActions.has(control.dataset.action)) return;
+      if (control.tagName === 'BUTTON') control.disabled = true;
+      else { control.setAttribute('aria-disabled', 'true'); control.removeAttribute('href'); }
+      control.title = control.dataset.action === 'reveal' ? 'O resultado individual fica na conta da pessoa.' : 'Disponível na sessão da pessoa.';
+    });
+    document.querySelectorAll('#app form :is(input,textarea,select,button)').forEach(control => { control.disabled = true; });
+  }
   setupPhotoInputs(document);
   document.querySelectorAll('#app form[data-form]').forEach(form => form.addEventListener('submit', submit));
   setupOTP(document.querySelector('#app'));
@@ -181,9 +200,11 @@ function clearAdmin() {
   state.adminOverview = null; state.adminData = null; state.adminTab = 'groups'; state.adminSearch = ''; state.adminCreatedPage = 1; state.adminParticipatingPage = 1;
 }
 function clearPrivateState() {
-  clearGroupDateEditor();
+  clearGroupEventEditor();
   clearRosterDialogs();
   clearWishlists();
+  clearAccountTools();
+  state.previewUser = null;
   state.dependents = []; state.ownDependents = []; state.dependentsReturnGroupId = ''; state.dependentBusyId = ''; state.dependentGroupError = '';
   state.dependentsNextCursor = null; state.ownDependentsNextCursor = null; state.dependentsLoadingMore = false; state.groupDependentsLoadingMore = false;
   state.drawGuide = null;
@@ -216,7 +237,7 @@ function rememberGroup(data) {
   state.ownDependents = data.ownDependents || group.ownDependents || []; state.dependentGroupError = '';
   state.ownDependentsNextCursor = data.ownDependentsNextCursor || null; state.groupDependentsLoadingMore = false;
   state.participants = data.participants || group.participants || [];
-  state.role = data.role || group.role || (group.organizerId === state.user?.id ? 'organizer' : 'member');
+  state.role = data.role || group.role || (group.organizerId === currentUser().id ? 'organizer' : 'member');
   state.organizerEmail = data.organizerEmail || group.organizerEmail || state.participants.find(person => person.isOrganizer)?.email || '';
   state.drawn = Boolean(group.drawn || group.drawnAt);
   state.match = null; state.revealed = false; state.dependentResults = [];
@@ -332,7 +353,7 @@ async function openRecipientWishlist({ dependentId = '', membershipId = '' } = {
   const expectedRoute = membershipId ? 'gift-ideas' : 'reveal';
   if (!groupId || !userId || route !== expectedRoute) return;
   if (membershipId) {
-    if (!canBrowseGroupWishlists(state) || !state.participants.some(person =>
+    if (!canBrowseGroupWishlists(viewState()) || !state.participants.some(person =>
       person.id === membershipId && person.status === 'accepted' && !person.isRemoved)) return;
   } else if (!state.revealed || (dependentId && !state.dependentResults.some(result => result.dependent.id === dependentId))) return;
   const request = ++recipientWishlistRequest, dialog = document.querySelector('#wishlist-recipient-dialog');
@@ -377,12 +398,17 @@ async function navigate(next, options = {}) {
     showWishlistDiscard(() => { void navigate(next, { ...options, discardChanges: true }); });
     return;
   }
-  clearGroupDateEditor();
+  clearGroupEventEditor();
   clearRosterDialogs();
   clearWishlists();
+  clearAccountTools();
   const parsed = parseHash(`#${next}`);
   next = parsed.route;
   const query = parsed.params;
+  if (state.previewUser && !viewAsRoutes.has(next)) {
+    next = 'dashboard';
+    for (const key of [...query.keys()]) query.delete(key);
+  }
   if (next === 'verify' && query.get('purpose') === 'recover' && /^[0-9a-f-]{36}$/i.test(query.get('challengeId') || '') && query.get('email')) {
     const invitation = query.get('invitation');
     if (/^[A-Za-z0-9_-]{43}$/.test(invitation || '')) setInvitationToken(invitation);
@@ -461,7 +487,7 @@ async function navigate(next, options = {}) {
       const data = await loadGroup(params.get('id'));
       if (navigation !== version) return;
       rememberGroup(data);
-      if (route === 'gift-ideas' && !canBrowseGroupWishlists(state)) { await navigate('group', { id: state.group.id, replace: true }); return; }
+      if (route === 'gift-ideas' && !canBrowseGroupWishlists(viewState())) { await navigate('group', { id: state.group.id, replace: true }); return; }
       if (route === 'wishlist') {
         const dependentId = params.get('dependentId') || '';
         const list = await api(wishlistPath(state.group.id, dependentId));
@@ -530,6 +556,95 @@ async function completeLogin(user, fromLink = false) {
   if (state.inviteToken) await navigate('invitation', { token: state.inviteToken, replace: fromLink });
   else { const destination = state.returnTo || (state.authMode === 'register' ? 'account-ready' : 'dashboard'); state.returnTo = ''; await navigate(destination, { replace: fromLink }); }
 }
+function clearAccountTools() {
+  cancelPasskey();
+  viewAsSearchVersion++;
+  for (const selector of ['#view-as-dialog', '#passkey-offer-dialog']) {
+    const dialog = document.querySelector(selector);
+    if (dialog?.open) dialog.close();
+    if (dialog) dialog.replaceChildren();
+  }
+}
+
+function showPasskeyOffer(userId) {
+  const dialog = document.querySelector('#passkey-offer-dialog');
+  if (!dialog || state.user?.id !== userId || !supportsPasskeys()) return;
+  dialog.innerHTML = renderPasskeyOffer();
+  dialog.showModal();
+}
+
+async function registerPasskey() {
+  const dialog = document.querySelector('#passkey-offer-dialog');
+  const panel = dialog?.querySelector('.account-tool-panel');
+  const userId = state.user?.id, navigation = version;
+  if (!dialog?.open || !userId || state.previewUser || panel.getAttribute('aria-busy') === 'true') return;
+  const current = () => dialog.open && state.user?.id === userId && navigation === version;
+  const feedback = dialog.querySelector('[data-passkey-error]');
+  feedback.hidden = true;
+  panel.setAttribute('aria-busy', 'true');
+  try {
+    const result = await usePasskey(post, 'register', current);
+    if (result?.ok && current()) { dialog.close(); toast('Chave de acesso cadastrada.'); }
+  } catch (error) {
+    if (current()) { feedback.textContent = errorMessage(error); feedback.hidden = false; }
+  } finally {
+    panel.removeAttribute('aria-busy');
+  }
+}
+
+async function loginPasskey() {
+  if (state.user || route !== 'login' || !supportsPasskeys() || passkeyLoginRunning) return;
+  const form = document.querySelector('form[data-form="login"]');
+  if (form?.getAttribute('aria-busy') === 'true') return;
+  const navigation = version;
+  const current = () => navigation === version && route === 'login' && !state.user;
+  passkeyLoginRunning = true;
+  try {
+    const result = await usePasskey(post, 'login', current);
+    if (result && current()) { state.authMode = 'login'; await completeLogin(result.user); }
+  } catch (error) {
+    if (current()) toast(errorMessage(error));
+  } finally { passkeyLoginRunning = false; }
+}
+
+async function loadViewAsPeople(dialog, page) {
+  const actorId = state.user?.id, navigation = version, request = ++viewAsSearchVersion;
+  const results = dialog.querySelector('.view-as-results');
+  results.textContent = 'Buscando contas…';
+  const search = dialog.querySelector('#view-as-search').value.trim();
+  const current = () => dialog.open && request === viewAsSearchVersion && navigation === version && state.user?.id === actorId && !state.previewUser;
+  try {
+    const data = await api(`/admin/users?${new URLSearchParams({ search, page, limit: '15' })}`);
+    if (current()) results.innerHTML = renderViewAsResults(data, actorId);
+  } catch (error) {
+    if (current()) results.textContent = errorMessage(error);
+  }
+}
+
+async function showViewAsPicker() {
+  const dialog = document.querySelector('#view-as-dialog');
+  if (!dialog || !state.user?.isAdmin || state.previewUser) return;
+  dialog.innerHTML = renderViewAsPicker();
+  dialog.querySelector('.view-as-search').addEventListener('submit', event => {
+    event.preventDefault();
+    void loadViewAsPeople(dialog, '1');
+  });
+  dialog.showModal();
+  await loadViewAsPeople(dialog, '1');
+}
+
+async function enterViewAs(target) {
+  const dialog = target.closest('dialog');
+  const actorId = state.user?.id, navigation = version;
+  const id = target.dataset.userId;
+  if (!state.user?.isAdmin || state.previewUser || !id || !dialog?.open) return;
+  const result = await api(`/admin/view-as/${segment(id)}`);
+  if (!dialog.open || navigation !== version || state.user?.id !== actorId || result.user?.id !== id) return;
+  clearPrivateState();
+  state.previewUser = result.user;
+  await navigate('dashboard', { replace: true });
+}
+
 function failureCount(value) { return Array.isArray(value) ? value.length : Number(value) || 0; }
 function responseEmails(value) { return Array.isArray(value) ? value.map(item => typeof item === 'string' ? item : item.email).filter(Boolean) : []; }
 async function submit(event) {
@@ -539,6 +654,7 @@ async function submit(event) {
   const data = new FormData(form);
   const value = name => String(data.get(name) || '').trim();
   const type = form.dataset.form;
+  if (state.previewUser || (type === 'login' && passkeyLoginRunning)) return;
   lockForm(form, true);
   try {
     if (type === 'wishlist-save') {
@@ -589,6 +705,7 @@ async function submit(event) {
       state.authMode = 'login'; state.authEmail = value('email').toLowerCase();
       const result = await post('/auth/login', { email: state.authEmail, password: String(data.get('password') || '') });
       await completeLogin(result.user);
+      if (result.offerPasskey) showPasskeyOffer(result.user.id);
     } else if (type === 'recover-password') {
       state.authMode = 'recover'; state.authEmail = value('email').toLowerCase(); state.resetToken = '';
       const result = await post('/auth/password/request', { email: state.authEmail, ...(state.inviteToken ? { inviteToken: state.inviteToken } : {}) });
@@ -679,19 +796,43 @@ async function showAdminDelete(kind) {
   dialog.oncancel = event => { if (form.getAttribute('aria-busy') === 'true') event.preventDefault(); };
   dialog.showModal();
 }
-function clearGroupDateEditor() {
+function clearGroupEventEditor() {
   const dialog = document.querySelector('#group-date-dialog');
   dialog?.querySelector('[data-calendar-dialog]')?.close();
   dialog?.close();
   if (dialog) dialog.innerHTML = '';
 }
-function showGroupDateEditor() {
-  const group = state.group, userId = state.user?.id, navigation = version;
-  if (!userId || !group?.id || group.organizerId !== userId || !['group', 'group-member'].includes(route)) return;
+function groupEventEditorField(field, group) {
+  if (field === 'date') return `<div class="field group-date-field" data-date-field><label id="edit-group-date-label">Data da troca</label><input type="hidden" name="date" value="${escapeHtml(group.date || '')}"><button type="button" class="group-date-trigger" data-date-trigger aria-haspopup="dialog" aria-expanded="false" aria-controls="edit-group-calendar" aria-describedby="edit-group-date-error"><span data-date-value>Escolha uma data</span>${icon('calendar', 18)}</button><span id="edit-group-date-error" class="group-date-error" data-date-error role="alert"></span><dialog id="edit-group-calendar" class="group-calendar" data-calendar-dialog aria-labelledby="group-calendar-title"></dialog></div>`;
+  if (field === 'budget') {
+    const amount = Number(group.budget).toLocaleString('pt-BR', { useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `<label class="field group-event-input">Valor sugerido em reais
+      <input name="budget" data-budget-input required inputmode="decimal" value="${escapeHtml(amount)}" autocomplete="off" aria-describedby="event-budget-error">
+      <span id="event-budget-error" data-budget-error role="alert"></span>
+    </label>`;
+  }
+  return `<label class="field group-event-input">Local do encontro
+    <input name="location" maxlength="120" autocomplete="off" placeholder="Ex.: Casa da vó Lúcia" value="${escapeHtml(group.location || '')}">
+    <span>Deixe em branco para mostrar “A combinar”.</span>
+  </label>`;
+}
+const eventEditors = {
+  date: { title: 'Editar data da troca', description: 'Escolha o dia do encontro.', save: 'Salvar data', done: 'Data da troca atualizada.', iconName: 'calendar' },
+  budget: { title: 'Editar valor sugerido', description: 'Informe o novo valor de referência para o presente.', save: 'Salvar valor', done: 'Valor sugerido atualizado.', iconName: 'wallet' },
+  location: { title: 'Editar local da troca', description: 'Atualize o ponto de encontro do grupo.', save: 'Salvar local', done: 'Local do encontro atualizado.', iconName: 'map-pin' },
+};
+function showGroupEventEditor(field) {
+  const group = state.group, userId = state.user?.id, navigation = version, editor = eventEditors[field];
+  if (!userId || !group?.id || group.organizerId !== userId || !['group', 'group-member'].includes(route) || !editor) return;
   const dialog = document.querySelector('#group-date-dialog');
   if (!dialog) return;
-  clearGroupDateEditor();
-  dialog.innerHTML = `<form class="group-date-editor"><div class="group-date-editor-heading"><span class="group-date-editor-symbol">${icon('calendar', 25)}</span><button type="button" class="btn btn-secondary group-date-editor-close" data-action="close-dialog" aria-label="Fechar edição de data">${icon('x', 20)}</button></div><span class="eyebrow">UM NOVO DIA PARA ESTAR JUNTO</span><h2 id="group-date-editor-title">Editar data da troca</h2><p>Escolha quando a turma de <strong>${escapeHtml(group.name)}</strong> vai se encontrar.</p><div class="field group-date-field" data-date-field><label id="edit-group-date-label">Data da troca</label><input type="hidden" name="date" value="${escapeHtml(group.date || '')}"><button type="button" class="group-date-trigger" data-date-trigger aria-haspopup="dialog" aria-expanded="false" aria-controls="edit-group-calendar" aria-describedby="edit-group-date-error"><span data-date-value>Escolha uma data</span>${icon('calendar', 18)}</button><span id="edit-group-date-error" class="group-date-error" data-date-error role="alert"></span><dialog id="edit-group-calendar" class="group-calendar" data-calendar-dialog aria-labelledby="group-calendar-title"></dialog></div><p class="group-date-editor-note">A nova data aparece na página do grupo. ${group.drawn ? 'Os pares do sorteio continuam os mesmos.' : 'As participações continuam confirmadas.'}</p><div class="group-date-editor-actions"><button type="button" class="btn btn-secondary" data-action="close-dialog">Cancelar</button><button type="submit" class="btn btn-primary">Salvar data ${icon('check', 17)}</button></div></form>`;
+  clearGroupEventEditor();
+  dialog.innerHTML = `<form class="group-date-editor">
+    <div class="group-date-editor-heading"><span class="group-date-editor-symbol">${icon(editor.iconName, 25)}</span><button type="button" class="btn btn-secondary group-date-editor-close" data-action="close-dialog" aria-label="Fechar edição">${icon('x', 20)}</button></div>
+    <h2 id="group-date-editor-title">${editor.title}</h2><p>${editor.description}</p>
+    ${groupEventEditorField(field, group)}
+    <div class="group-date-editor-actions"><button type="button" class="btn btn-secondary" data-action="close-dialog">Cancelar</button><button type="submit" class="btn btn-primary">${editor.save} ${icon('check', 17)}</button></div>
+  </form>`;
   const form = dialog.querySelector('form'), button = form.querySelector('button[type="submit"]');
   setupGroupFields(form);
   const stillCurrent = () => navigation === version && state.user?.id === userId && state.group?.id === group.id && dialog.open && dialog.querySelector('form') === form;
@@ -699,22 +840,27 @@ function showGroupDateEditor() {
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (!stillCurrent() || form.getAttribute('aria-busy') === 'true' || !form.reportValidity()) return;
-    const date = form.elements.date.value;
-    if (!date) { formError(form, 'Escolha a data do encontro.'); return; }
+    const raw = form.elements[field].value;
+    if (field === 'date' && !raw) { formError(form, 'Escolha a data do encontro.'); return; }
+    const value = field === 'budget' ? parseBudget(raw) : raw.trim();
+    if (field === 'budget' && (!Number.isFinite(value) || value < 1 || value > 100000)) {
+      formError(form, 'Informe um valor entre R$ 1,00 e R$ 100.000,00.'); return;
+    }
     form.setAttribute('aria-busy', 'true');
     form.querySelectorAll('button,input').forEach(element => { element.disabled = true; });
     button.textContent = 'Salvando…';
     try {
-      const result = await post(`/groups/${segment(group.id)}/date`, { date });
+      const result = await post(`/groups/${segment(group.id)}/${field}`, { [field]: value });
       if (!stillCurrent()) return;
-      if (result.group?.id !== group.id || result.group?.date !== date) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar a nova data. Tente salvar novamente.');
-      state.group = { ...state.group, date };
-      state.groups = state.groups.map(item => item.id === group.id ? { ...item, date } : item);
-      if (state.invitation?.group?.id === group.id) state.invitation.group = { ...state.invitation.group, date };
+      if (result.group?.id !== group.id || result.group?.[field] !== value) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar a alteração. Tente salvar novamente.');
+      const patch = { [field]: value };
+      state.group = { ...state.group, ...patch };
+      state.groups = state.groups.map(item => item.id === group.id ? { ...item, ...patch } : item);
+      if (state.invitation?.group?.id === group.id) state.invitation.group = { ...state.invitation.group, ...patch };
       const scroll = window.scrollY;
-      clearGroupDateEditor(); render(); window.scrollTo({ top: scroll, behavior: 'instant' });
-      document.querySelector('[data-action="edit-group-date"]')?.focus({ preventScroll: true });
-      toast('Data da troca atualizada.');
+      clearGroupEventEditor(); render(); window.scrollTo({ top: scroll, behavior: 'instant' });
+      document.querySelector(`[data-action="edit-group-${field}"]`)?.focus({ preventScroll: true });
+      toast(editor.done);
     } catch (error) {
       if (!stillCurrent()) return;
       if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); }
@@ -723,7 +869,7 @@ function showGroupDateEditor() {
       if (stillCurrent()) {
         form.setAttribute('aria-busy', 'false');
         form.querySelectorAll('button,input').forEach(element => { element.disabled = false; });
-        button.innerHTML = `Salvar data ${icon('check', 17)}`;
+        button.innerHTML = `${editor.save} ${icon('check', 17)}`;
       }
     }
   });
@@ -908,7 +1054,23 @@ async function logout(keepInvitation = false) {
   await navigate(keepInvitation ? 'invitation' : 'welcome', keepInvitation ? { token: invite } : {});
 }
 async function action(name, target) {
+  if (state.previewUser && !viewAsActions.has(name)) return;
   switch (name) {
+    case 'view-as': await showViewAsPicker(); break;
+    case 'view-as-page': {
+      const dialog = target.closest('dialog');
+      if (dialog?.open && state.user?.isAdmin) await loadViewAsPeople(dialog, target.dataset.page);
+      break;
+    }
+    case 'view-as-person': await enterViewAs(target); break;
+    case 'exit-view-as': {
+      if (!state.previewUser) break;
+      clearPrivateState();
+      await navigate('dashboard', { replace: true });
+      break;
+    }
+    case 'login-passkey': await loginPasskey(); break;
+    case 'register-passkey': await registerPasskey(); break;
     case 'wishlist-add': {
       const list = state.wishlist; if (route !== 'wishlist' || !list || list.busy) return;
       const item = emptyWishlistItem(); list.items.push(item); renderWishlistUpdate(`[id="wish-text-${item.id}"]`); break;
@@ -923,7 +1085,9 @@ async function action(name, target) {
     case 'wishlist-participant': await openRecipientWishlist({ membershipId: target.dataset.membershipId }); break;
     case 'wishlist-recipient-more': await loadMoreRecipientWishlist(); break;
     case 'help': showHelp(); break;
-    case 'edit-group-date': showGroupDateEditor(); break;
+    case 'edit-group-date': showGroupEventEditor('date'); break;
+    case 'edit-group-budget': showGroupEventEditor('budget'); break;
+    case 'edit-group-location': showGroupEventEditor('location'); break;
     case 'remove-participant': showParticipantRemoval(target.dataset.participantId); break;
     case 'add-group-dependent': showAddGroupDependent(); break;
     case 'dependents-more': await loadMoreDependents(); break;
@@ -1066,12 +1230,13 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['remove-participant', 'add-group-dependent', 'dependents-more', 'group-dependents-more', 'edit-group-date', 'wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-participant', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['view-as', 'view-as-page', 'view-as-person', 'exit-view-as', 'login-passkey', 'register-passkey', 'remove-participant', 'add-group-dependent', 'dependents-more', 'group-dependents-more', 'edit-group-date', 'edit-group-budget', 'edit-group-location', 'wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-participant', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }
   const target = event.target.closest('[data-route],[data-action]');
-  if (!target || target.disabled) return;
+  if (!target) return;
+  if (target.disabled || target.getAttribute('aria-disabled') === 'true') { event.preventDefault(); return; }
   if (target.tagName === 'A' && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)) return;
   if (target.dataset.route) { event.preventDefault(); if (busyDraw) return; rememberAuthEmail(); await navigate(target.dataset.route, { id: target.dataset.adminId || target.dataset.groupId || undefined }); return; }
   const name = target.dataset.action;
@@ -1100,6 +1265,16 @@ document.querySelector('#wishlist-recipient-dialog')?.addEventListener('close', 
   const dialog = document.querySelector('#wishlist-recipient-dialog');
   if (dialog?.open) return;
   recipientWishlistRequest++; state.recipientWishlist = null; if (dialog) dialog.innerHTML = '';
+});
+document.querySelector('#view-as-dialog')?.addEventListener('close', event => {
+  if (event.currentTarget.open) return;
+  viewAsSearchVersion++;
+  event.currentTarget.replaceChildren();
+});
+document.querySelector('#passkey-offer-dialog')?.addEventListener('close', event => {
+  if (event.currentTarget.open) return;
+  cancelPasskey();
+  event.currentTarget.replaceChildren();
 });
 window.addEventListener('beforeunload', event => { if (wishlistDirty(state.wishlist)) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('popstate', navigateFromHistory);

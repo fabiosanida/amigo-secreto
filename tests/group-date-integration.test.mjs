@@ -100,6 +100,32 @@ test('only the creator can reschedule a group without changing its draw or sendi
       assert.equal(result.status, 200); assert.equal(result.data.match.id, third.id);
       assert.equal(notificationAttempts, 0);
     });
+    await t.test('only the creator edits the value and location, before or after the draw', async () => {
+      const editField = (g, account, field, body) => request(`groups/${g.id}/${field}`, { cookie: account?.cookie, body });
+      for (const g of [group, drawn]) {
+        const original = await snapshot(g);
+        assert.equal((await editField(g, null, 'budget', { budget: 120 })).status, 401);
+        assert.equal((await editField(g, member, 'budget', { budget: 120 })).status, 403);
+        assert.equal((await editField(g, member, 'location', { location: 'Outro local' })).status, 403);
+        assert.equal((await editField(g, admin, 'location', { location: 'Outro local' })).status, 404);
+        assert.equal((await editField(g, owner, 'budget', { budget: 0 })).status, 400);
+        assert.equal((await editField(g, owner, 'location', {})).status, 400);
+        assert.equal((await editField(g, owner, 'location', { location: 'a'.repeat(121) })).status, 400);
+        const updated = await Promise.all([
+          editField(g, owner, 'budget', { budget: 124.5, location: 'should be ignored' }),
+          editField(g, owner, 'location', { location: '  Varanda da família  ', budget: 1 }),
+        ]);
+        assert.deepEqual(updated.map(result => result.status), [200, 200]);
+        assert.deepEqual(updated[0].data.group, { id: g.id, budget: 124.5 });
+        assert.deepEqual(updated[1].data.group, { id: g.id, location: 'Varanda da família' });
+        const visible = await request(`groups/${g.id}`, { cookie: member.cookie });
+        assert.equal(visible.data.group.budget, 124.5);
+        assert.equal(visible.data.group.location, 'Varanda da família');
+        assert.equal((await editField(g, owner, 'location', { location: '' })).data.group.location, '');
+        assert.deepEqual(await snapshot(g), { ...original, details: { ...original.details, budget: 124.5, location: '' } });
+      }
+      assert.equal(notificationAttempts, 0);
+    });
   } finally {
     await new Promise(resolve => server.close(resolve)); globalThis.fetch = originalFetch;
     if (originalUrl === undefined) delete process.env.APP_URL; else process.env.APP_URL = originalUrl;

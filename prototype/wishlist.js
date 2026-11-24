@@ -6,7 +6,7 @@ const personName = person => person?.name || [person?.firstName, person?.lastNam
 const groupRoute = state => `group?id=${encodeURIComponent(state.group?.id || '')}`;
 const directoryRoute = state => `gift-ideas?id=${encodeURIComponent(state.group?.id || '')}`;
 const editorRoute = (state, dependentId = '') => `wishlist?${new URLSearchParams({ id: state.group?.id || '', ...(dependentId ? { dependentId } : {}) })}`;
-const glyph = name => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${name === 'edit' ? '<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15v5Z"/>' : name === 'external' ? '<path d="M14 3h7v7m0-7L10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/>' : '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>'}</svg>`;
+const glyph = name => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${name === 'external' ? '<path d="M14 3h7v7m0-7L10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/>' : '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>'}</svg>`;
 
 export function emptyWishlistItem() { return { id: crypto.randomUUID(), text: '', url: '' }; }
 export function wishlistDirty(wishlist) {
@@ -35,7 +35,15 @@ export function canBrowseGroupWishlists(state) {
 
 export function renderWishlistCard(state) {
   if (!canEditWishlist(state)) return '';
-  return `<section class="wl-own-card ${state.drawn ? 'is-featured' : ''}" aria-labelledby="wishlist-card-title"><span class="wl-own-symbol">${icon(state.drawn ? 'sparkles' : 'gift', 27)}</span><div class="wl-own-copy"><small>${state.drawn ? 'JÁ TEM ALGUÉM PENSANDO NO SEU PRESENTE' : 'PISTAS PARA UMA BOA SURPRESA'}</small><h2 id="wishlist-card-title">O que faria você sorrir?</h2><p>${state.drawn ? 'Deixe suas ideias e confira as sugestões de todos que participam deste amigo secreto.' : 'Conte o que gostaria de ganhar neste grupo. Você pode incluir quantas ideias quiser e adicionar um link em cada uma.'}</p></div><div class="wl-own-actions"><a class="btn ${state.drawn ? 'wl-btn-coral' : 'btn-secondary'}" href="#${editorRoute(state)}" data-route="${editorRoute(state)}">${glyph('edit')} Minhas sugestões</a>${state.drawn ? `<a class="btn btn-secondary" href="#${directoryRoute(state)}" data-route="${directoryRoute(state)}">${icon('users', 18)} Sugestões do grupo</a>` : ''}</div></section>`;
+  return `<section class="group-action-card group-wish-card ${state.drawn ? 'is-featured' : ''}" aria-labelledby="wishlist-card-title">
+    <span class="group-action-icon">${icon('gift', 26)}</span>
+    <h2 id="wishlist-card-title">O que faria você sorrir?</h2>
+    <p>${state.drawn ? 'Deixe suas ideias e confira as sugestões de quem participa deste amigo secreto.' : 'Conte o que gostaria de ganhar e inclua um link se quiser.'}</p>
+    <div class="group-action-buttons">
+      <a class="btn btn-primary" href="#${editorRoute(state)}" data-route="${editorRoute(state)}">${icon('edit', 16)} Minhas sugestões</a>
+      ${state.drawn ? `<a class="btn btn-secondary" href="#${directoryRoute(state)}" data-route="${directoryRoute(state)}">${icon('users', 16)} Sugestões do grupo</a>` : ''}
+    </div>
+  </section>`;
 }
 
 function renderGroupWishlists(state) {

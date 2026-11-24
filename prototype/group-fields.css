@@ -10,3 +10,17 @@ dialog.group-calendar{position:fixed;inset:auto;margin:0;padding:0;width:min(368
 #group-date-dialog::backdrop{background:#203d3578;backdrop-filter:blur(3px)}
 .group-date-editor{padding:30px}.group-date-editor-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}.group-date-editor-symbol{display:grid;place-items:center;width:54px;height:54px;border-radius:16px;background:#e8efdf;color:#6f885d}.group-date-editor-close{width:42px;min-height:42px;padding:0;border-radius:11px}.group-date-editor>.eyebrow{font-size:11px;letter-spacing:1.5px;line-height:1.6}.group-date-editor h2{font-size:34px;font-weight:400;margin:13px 0 17px}.group-date-editor>p{font-size:15px;line-height:1.8;color:#687863;overflow-wrap:anywhere;margin-bottom:25px}.group-date-editor strong{font-weight:550;color:var(--ink)}.group-date-editor .field{font-size:14px;margin-bottom:18px}.group-date-editor .group-date-trigger{font-size:16px;min-height:54px}.group-date-editor .group-date-editor-note{font-size:13px;line-height:1.8;margin:18px 0 25px}.group-date-editor-actions{display:flex;gap:12px;padding-top:22px;border-top:1px solid #e0e5d9}.group-date-editor-actions .btn{flex:1;min-width:0;min-height:48px;font-size:14px;white-space:normal;line-height:1.4}.group-edit-date:focus-visible,.group-date-editor :focus-visible{outline:3px solid #b9765a;outline-offset:3px}
 @media(max-width:600px){.group-date-editor{padding:24px}.group-date-editor h2{font-size:30px}.group-date-editor>.eyebrow{font-size:10px;letter-spacing:1.2px}.group-date-editor-actions{gap:9px}.group-date-editor-actions .btn{padding:12px 14px}.group-event-strip .group-edit-date{font-size:12px;min-height:38px}}
+
+.group-event-input { display: grid; gap: 7px; margin-bottom: 18px; }
+.group-event-input input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #d6dfd0;
+  border-radius: 9px;
+  min-height: 46px;
+  font-size: 16px;
+  color: var(--ink);
+  background: #fff;
+}
+.group-event-input span { font-size: 13px; color: #596c52; }
+.group-event-input [data-budget-error]:not(:empty) { color: #a64c35; }

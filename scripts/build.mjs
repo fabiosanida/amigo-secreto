@@ -2,9 +2,13 @@ import {readFile,writeFile,mkdir,copyFile,cp,rm} from 'node:fs/promises';
 const root=new URL('../',import.meta.url);
 await rm(new URL('public/',root),{recursive:true,force:true});
 await mkdir(new URL('public/',root),{recursive:true});
-const files=['wishlist.js','wishlist.css','dependents.js','dependents.css','marmelada.js','marmelada.css','admin.js','admin.css','group-fields.js','group-fields.css','invite-fields.js','invite-fields.css','otp.js','ui.js','auth.js','groups.js','styles.css','auth.css','groups.css','profile.js','profile.css'];
+const files=['account-tools.js','account-tools.css','wishlist.js','wishlist.css','dependents.js','dependents.css','marmelada.js','marmelada.css','admin.js','admin.css','group-fields.js','group-fields.css','invite-fields.js','invite-fields.css','otp.js','ui.js','auth.js','groups.js','styles.css','auth.css','groups.css','profile.js','profile.css'];
 for(const file of files)await copyFile(new URL('prototype/'+file,root),new URL('public/'+file,root));
 await copyFile(new URL('prototype/live.js',root),new URL('public/app.js',root));
+await cp(new URL('node_modules/@simplewebauthn/browser/esm/',root),new URL('public/webauthn/',root),{
+  recursive:true,filter:path=>!path.endsWith('.map')&&!path.endsWith('.ts'),
+});
+await copyFile(new URL('node_modules/@simplewebauthn/browser/LICENSE.md',root),new URL('public/webauthn/LICENSE.md',root));
 await cp(new URL('prototype/assets/',root),new URL('public/assets/',root),{recursive:true});
 let html=await readFile(new URL('prototype/index.html',root),'utf8');
 html=html.replace(/\s*<link rel="stylesheet" href="\.\/(?:emails|brand)\.css">/g,'').replace('</head>','<link rel="stylesheet" href="./profile.css">\n<style>body{padding-bottom:0}</style>\n</head>');

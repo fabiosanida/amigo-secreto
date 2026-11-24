@@ -1,12 +1,14 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ApiError, query } from '../lib/db.js';
 import { accountAvailability, clientIP, loginAuthentication, logout, rateLimit, registerAuthentication, requestAuthentication, requestPasswordReset, resetPassword, sessionUser, verifyAuthentication, verifyPasswordReset } from '../lib/auth.js';
-import { acceptGroupInvitation, acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, removeParticipant, resendInvite, retryNotifications, trackOpen, updateGroupDate } from '../lib/groups.js';
+import { acceptGroupInvitation, acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, removeParticipant, resendInvite, retryNotifications, trackOpen, updateGroupEvent } from '../lib/groups.js';
 import { updateProfile } from '../lib/profile.js';
 import { createDependent, createGroupDependent, listDependents, setDependentParticipation } from '../lib/dependents.js';
 import { listWishlist, participantWishlist, recipientWishlist, saveWishlist } from '../lib/wishlists.js';
 import { adminGroup, adminGroups, adminOverview, adminUser, adminUsers } from '../lib/admin.js';
 import { requireAdmin } from '../lib/admin-access.js';
+import { viewAs } from '../lib/view-as.js';
+import { beginPasskeyLogin, beginPasskeyRegistration, finishPasskeyLogin, finishPasskeyRegistration } from '../lib/passkeys.js';
 import { adminDeleteGroup, adminDeleteUser, adminGroupDeletePreview, adminUserDeletePreview } from '../lib/admin-delete.js';
 import { checkMarmelada, marmeladaGroup, marmeladaGroups } from '../lib/admin-marmelada.js';
 
@@ -73,6 +75,10 @@ export default async function handler(req, res) {
     if (method === 'GET' && path === 'internal/notifications/drain') { verifyCron(req); return send(res, 200, await drainOutbox()); }
     if (method === 'GET' && path === 'session') return send(res, 200, { user: await sessionUser(req) });
     if (method === 'POST' && path === 'auth/register') return send(res, 200, await registerAuthentication(body, req, res));
+    if (method === 'POST' && path === 'auth/passkeys/register/options') return send(res, 200, await beginPasskeyRegistration(req));
+    if (method === 'POST' && path === 'auth/passkeys/register/verify') return send(res, 200, await finishPasskeyRegistration(body, req));
+    if (method === 'POST' && path === 'auth/passkeys/login/options') return send(res, 200, await beginPasskeyLogin(req, res));
+    if (method === 'POST' && path === 'auth/passkeys/login/verify') return send(res, 200, await finishPasskeyLogin(body, req, res));
     if (method === 'POST' && path === 'auth/login') return send(res, 200, await loginAuthentication(body, req, res));
     if (method === 'POST' && path === 'auth/account') return send(res, 200, await accountAvailability(body, req));
     if (method === 'POST' && path === 'auth/password/request') return send(res, 200, await requestPasswordReset(body, req));
@@ -88,6 +94,10 @@ export default async function handler(req, res) {
     const user = await sessionUser(req, true, { includeAvatar: path === 'profile' });
     if (parts[0] === 'admin') {
       requireAdmin(user);
+      if (parts[1] === 'view-as') {
+        if (method !== 'GET') throw new ApiError(405, 'METHOD_NOT_ALLOWED', 'O modo de visualização é somente leitura.');
+        return send(res, 200, await viewAs(user, parts[2], parts.slice(3), url.searchParams));
+      }
       const filters = { ...Object.fromEntries(url.searchParams), ...(req.query || {}) };
       if (method === 'GET' && path === 'admin/overview') return send(res, 200, await adminOverview(user));
       if (method === 'GET' && path === 'admin/groups') return send(res, 200, await adminGroups(user, filters));
@@ -125,7 +135,9 @@ export default async function handler(req, res) {
         return send(res, 200, await recipientWishlist(user, id, { dependentId: url.searchParams.get('dependentId'), cursor: url.searchParams.get('cursor') }));
       }
       if (parts.length === 2 && method === 'GET') return send(res, 200, await getGroup(user, id));
-      if (parts.length === 3 && parts[2] === 'date' && method === 'POST') return send(res, 200, await updateGroupDate(user, id, body));
+      if (parts.length === 3 && ['date', 'budget', 'location'].includes(parts[2]) && method === 'POST') {
+        return send(res, 200, await updateGroupEvent(user, id, parts[2], body));
+      }
       if (parts.length === 3 && parts[2] === 'dependents' && method === 'POST') return send(res, 201, await createGroupDependent(user, id, body));
       if (parts.length === 4 && parts[2] === 'dependents' && method === 'POST') return send(res, 200, await setDependentParticipation(user, id, parts[3], body));
       if (parts.length === 5 && parts[2] === 'participants' && parts[4] === 'remove' && method === 'POST') return send(res, 200, await removeParticipant(user, id, parts[3], body));

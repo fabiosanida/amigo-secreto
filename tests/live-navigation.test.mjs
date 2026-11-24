@@ -7,6 +7,7 @@ import { renderAuth, AUTH_ROUTES } from '../prototype/auth.js';
 import { renderGroups, GROUP_ROUTES } from '../prototype/groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from '../prototype/dependents.js';
 import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem } from '../prototype/wishlist.js';
+import { cancelPasskey, renderPasskeyOffer, renderViewAsBanner, renderViewAsPicker, renderViewAsResults, supportsPasskeys, usePasskey } from '../prototype/account-tools.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from '../prototype/admin.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from '../prototype/ui.js';
 
@@ -25,6 +26,7 @@ function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {})
     document: { body: { dataset: {}, style: {} }, querySelector: selector => selector === '#app' ? app : selectors[selector] || null, querySelectorAll: () => [], addEventListener: noop },
     window: { scrollTo: noop, addEventListener(type, listener) { listeners[type] = listener; } },
     renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderDependents, DEPENDENT_ROUTES, WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem, renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
+    cancelPasskey, renderPasskeyOffer, renderViewAsBanner, renderViewAsPicker, renderViewAsResults, supportsPasskeys: () => false, usePasskey,
     showMarmeladaResult: result => { presentations.push(result); },
     setupWishlistFields: noop, showWishlistDiscard: callback => discards.push(callback),
     setupInviteFields: noop, setInviteFieldsBusy: noop, setupGroupFields: noop, parseBudget: Number, setupOTP: noop,

@@ -80,6 +80,35 @@ test('private administration and creator deletion enforce server identity, full 
       assert.equal(user.data.user.participatingCount, 3); assert.equal(user.data.groupsParticipating.length, 1);
       assert.equal((await api('admin/groups?limit=500', { cookie: admin.cookie })).status, 400);
     });
+    await t.test('view as uses the selected account permissions without changing the real session or opening private results', async () => {
+      const asOwner = `admin/view-as/${owner.id}`, asMember = `admin/view-as/${member.id}`;
+      const drawnPath = `groups/${drawn.id}`;
+      assert.equal((await api(asOwner)).status, 401);
+      assert.equal((await api(`${asOwner}?isAdmin=true`, { cookie: member.cookie })).status, 403);
+      const identity = await api(asOwner, { cookie: admin.cookie });
+      assert.equal(identity.status, 200); assert.equal(identity.data.user.id, owner.id);
+      assert.equal(identity.data.user.isAdmin, false);
+      const dashboard = await api(`${asOwner}/groups`, { cookie: admin.cookie });
+      assert(dashboard.data.groups.some(group => group.id === drawn.id && group.role === 'organizer'));
+      const organizerView = await api(`${asOwner}/${drawnPath}`, { cookie: admin.cookie });
+      assert.equal(organizerView.status, 200);
+      assert.equal(organizerView.data.drawGuide.status, 'single');
+      assert.equal(organizerView.data.match, null);
+      const participantView = await api(`${asMember}/${drawnPath}`, { cookie: admin.cookie });
+      assert.equal(participantView.status, 200);
+      assert(!('drawGuide' in participantView.data));
+      assert.equal(participantView.data.match, null);
+      assert.equal((await api(`${asOwner}/${drawnPath}/result`, { cookie: admin.cookie })).status, 404);
+      assert.equal((await api(`${asOwner}/${drawnPath}/result/wishlist`, { cookie: admin.cookie })).status, 404);
+      assert.equal((await api(`${asMember}/${drawnPath}/participants/${drawn.members[0].id}/wishlist`, { cookie: admin.cookie })).status, 200);
+      assert.equal((await api(`admin/view-as/${outsider.id}/groups/${pending.id}`, { cookie: admin.cookie })).status, 404);
+      assert.equal((await api(`${asOwner}/${drawnPath}/date`, { cookie: admin.cookie, body: { date: '2030-12-24' } })).status, 405);
+      const pendingView = await api(`${asOwner}/groups/${pending.id}`, { cookie: admin.cookie });
+      assert.equal(pendingView.status, 200);
+      const delivery = (await query('SELECT state,attempts FROM as_outbox WHERE group_id=$1', [pending.id])).rows[0];
+      assert.deepEqual(delivery, { state: 'pending', attempts: 0 });
+      assert.equal((await api('session', { cookie: admin.cookie })).data.user.id, admin.id);
+    });
     await t.test('only the creator can delete and the exact name must be confirmed', async () => {
       assert.equal((await api(`groups/${pending.id}/delete`, { body: { confirmation: pending.name } })).status, 401);
       assert.equal((await api(`groups/${pending.id}/delete`, { cookie: member.cookie, body: { confirmation: pending.name } })).status, 403);
