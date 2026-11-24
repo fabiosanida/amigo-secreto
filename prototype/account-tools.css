@@ -14,7 +14,6 @@
   white-space: nowrap;
 }
 .app-account .view-as-button:hover { background: #e5edde; }
-.app-account .view-as-avatar { display: inline-flex; padding: 4px; }
 .view-as-banner {
   display: flex;
   align-items: center;

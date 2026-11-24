@@ -42,8 +42,8 @@ export function renderPasskeyOffer() {
 
 export function renderViewAsBanner(user) {
   if (!user) return '';
-  return `<aside class="view-as-banner" aria-label="Modo de visualização">
-    <span>${icon('monitor', 18)} <span>Visualizando como <strong>${escapeHtml(`${user.firstName} ${user.lastName}`)}</strong> · Somente leitura</span></span>
+  return `<aside class="view-as-banner" aria-label="Edição em outra conta">
+    <span>${icon('monitor', 18)} <span>Editando como <strong>${escapeHtml(`${user.firstName} ${user.lastName}`)}</strong></span></span>
     <button type="button" class="btn btn-secondary" data-action="exit-view-as">Voltar à minha conta</button>
   </aside>`;
 }
@@ -55,7 +55,7 @@ export function renderViewAsPicker() {
       <button type="button" class="btn btn-secondary wl-close" data-action="close-dialog" aria-label="Fechar seleção">${icon('x', 19)}</button>
     </header>
     <h2 id="view-as-title">Visualizar como</h2>
-    <p>Escolha uma conta para conferir como o aplicativo aparece para essa pessoa.</p>
+    <p>Escolha uma conta para ver o aplicativo e fazer alterações com as permissões dessa pessoa.</p>
     <form class="view-as-search">
       <label for="view-as-search">Nome ou e-mail</label>
       <div><input id="view-as-search" name="search" type="search" maxlength="100" placeholder="Buscar uma pessoa" autocomplete="off">

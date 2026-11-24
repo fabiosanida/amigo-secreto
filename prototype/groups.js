@@ -90,16 +90,17 @@ function renderDrawGuide(state) {
   const people = new Map(state.participants.map(person => [person.id, person]));
   const candidates = starters.map(id => people.get(id)).filter(Boolean);
   const message = status === 'single'
-    ? 'Qualquer pessoa sorteada pode começar. Quem recebe entrega o próximo presente, e a corrente passa por todos até voltar ao início.'
+    ? 'O sorteio forma uma única corrente. Qualquer pessoa da lista pode começar. Quem recebe faz a próxima entrega, e a troca passa por todos antes de voltar a quem começou. Não é preciso recomeçar.'
     : status === 'multiple'
-      ? 'Este sorteio tem mais de uma corrente. Quando uma terminar, alguém que ainda não entregou seu presente começa a próxima.'
-      : 'Quem recebe um presente faz a próxima entrega.';
+      ? 'Este sorteio tem correntes separadas. Qualquer início volta à pessoa que começou antes de passar por todos. Nenhuma pessoa consegue completar a troca inteira sem recomeçar.'
+      : 'Os resultados disponíveis não permitem confirmar quem pode iniciar uma troca que passe por todos.';
+  const list = candidates.length && `<ul aria-label="Pessoas que podem começar">${candidates.map(person => `<li><span aria-hidden="true">${avatar(person.name, person.color, 'small', person.avatar ?? null)}</span><span>${escape(person.name)}</span></li>`).join('')}</ul>`;
   return `<section class="group-action-card group-draw-guide" aria-labelledby="draw-guide-title">
     <span class="group-action-icon">${icon('chain', 26)}</span>
     <h2 id="draw-guide-title">Quem começa a troca?</h2>
     <p>${message}</p>
-    ${status === 'single' && candidates.length ? `<div class="group-draw-guide-starters">
-      <ul aria-label="Sugestões para começar">${candidates.map(person => `<li><span aria-hidden="true">${avatar(person.name, person.color, 'small', person.avatar ?? null)}</span><span>${escape(person.name)}</span></li>`).join('')}</ul>
+    ${list ? `<div class="group-draw-guide-starters">
+      ${candidates.length > 6 ? `<details><summary>Ver as ${candidates.length} pessoas que podem começar</summary>${list}</details>` : list}
     </div>` : ''}
   </section>`;
 }
@@ -167,6 +168,10 @@ function drawnPage(state) {
 }
 
 function revealPage(state) {
+  if (state.viewAs) return `<section class="draw-reveal-page">${back()}<div class="draw-reveal-heading">
+    <span class="eyebrow">${escape(state.group?.name)}</span>
+    <h1>Resultado individual</h1><p>Cada pessoa consulta o próprio resultado na sua conta.</p>
+  </div></section>`;
   if (state.production && !state.match?.name) state = { ...state, revealed: false };
   const hasDependents = Array.isArray(state.participants) ? state.participants.some(person => person.dependentId && person.guardianId === state.user?.id && person.status === 'accepted') : Boolean(state.ownDependents?.some(dependent => dependent.active));
   return `<section class="draw-reveal-page">${back()}<div class="draw-reveal-heading ${state.revealed ? 'is-revealed' : ''}"><span class="eyebrow">${escape(state.group?.name || 'UM PRESENTE COM DESTINO')}</span>${state.revealed ? '' : `<h1>Tem alguém esperando<br>seu carinho.</h1><p>${hasDependents ? 'Seu resultado e o dos seus dependentes estão aqui. Vamos descobrir?' : 'Um nome, muitas ideias. Pronto para descobrir?'}</p>`}</div><div class="draw-reveal-card ${state.revealed ? 'is-revealed' : ''}">${state.revealed ? `<span class="draw-match-label">SEU AMIGO SECRETO É</span><div class="draw-match-avatar">${avatar(state.match?.name || (state.production ? 'Seu amigo secreto' : 'Ana Oliveira'), 2, 'large', state.match?.avatar ?? null)}</div><h2>${escape(state.match?.name || (state.production ? 'Seu amigo secreto' : 'Ana Oliveira'))}</h2><button class="btn btn-primary" data-action="wishlist-recipient">${icon('gift', 19)} Ver sugestões de presentes ${icon('arrow-right', 18)}</button>` : `<div class="draw-reveal-corner" aria-hidden="true">✧</div><span class="draw-match-label">${hasDependents ? 'AS SURPRESAS DA SUA TURMA' : 'UMA SURPRESA SÓ SUA'}</span>${giftArt('draw-reveal-gift')}<h2>O segredo está aqui.</h2><p>Abra com calma.<br> ${hasDependents ? 'Você também acompanha os resultados dos seus dependentes.' : 'Essa parte é só entre nós.'}</p><button class="btn btn-primary" data-action="reveal">${icon('gift', 18)} ${hasDependents ? 'Revelar nossos amigos secretos' : 'Revelar meu amigo secreto'}</button>`}</div>${renderDependentResults(state)}${state.revealed ? `<div class="draw-result-actions"><button class="btn btn-secondary" data-action="hide-result">${icon('lock', 17)} Guardar resultados</button><button class="btn btn-secondary" data-route="group">Voltar para o grupo ${icon('arrow-right', 17)}</button></div>` : `<div class="draw-reveal-privacy">${icon('lock', 16)} ${hasDependents ? 'Você consulta seu resultado e os dos dependentes sob sua responsabilidade.' : 'Consulte seu resultado na sua conta.'}</div>`}</section>`;

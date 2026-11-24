@@ -26,7 +26,7 @@ const state = {
   dependents: [], ownDependents: [], dependentResults: [], dependentsReturnGroupId: '', dependentBusyId: '', dependentGroupError: '',
   dependentsNextCursor: null, ownDependentsNextCursor: null, dependentsLoadingMore: false, groupDependentsLoadingMore: false,
   wishlist: null, recipientWishlist: null, drawGuide: null,
-  marmeladaData: null, marmeladaSearch: '', previewUser: null,
+  marmeladaData: null, marmeladaSearch: '', viewAs: null,
   adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
   role: 'member', organizerEmail: '', drawn: false, revealed: false, match: null,
   invitation: null, inviteToken: storage.get(INVITE_KEY) || '',
@@ -35,8 +35,7 @@ const state = {
   authMode: storedChallenge?.purpose === 'recover' ? 'recover' : storedChallenge ? 'register' : 'login', authEmail: storedChallenge?.email || '', accountCheck: null, resetToken: '', resendAt: Number(storedChallenge?.resendAt) || 0, requestPayload: null,
 };
 const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal', ...WISHLIST_ROUTES]);
-const viewAsRoutes = new Set(['dashboard', 'dashboard-empty', 'group', 'group-member', 'gift-ideas', 'dependents', 'reveal']);
-const viewAsActions = new Set(['exit-view-as', 'help', 'close-dialog', 'refresh-group', 'retry-route', 'wishlist-participant', 'wishlist-recipient-more', 'group-dependents-more', 'dependents-more']);
+const viewAsRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES]);
 const organizerRoutes = new Set(['invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn']);
 const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
 const signedRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
@@ -50,23 +49,27 @@ class ApiError extends Error {
   constructor(code, message, status, payload) { super(message); this.code = code; this.status = status; this.payload = payload; }
 }
 async function api(path, options = {}) {
-  if (state.previewUser) {
-    if (options.method && options.method !== 'GET') throw new ApiError('PREVIEW_READ_ONLY', 'Este modo é somente leitura.', 405);
-    path = `/admin/view-as/${segment(state.previewUser.id)}${path}`;
-  }
-  let response;
+  const viewAs = state.viewAs;
+  const editing = viewAs && options.method === 'POST';
+  if (viewAs) path = `/admin/view-as/${segment(state.user.id)}${path}`;
+  if (editing) viewAs.pendingWrites++;
   try {
-    response = await fetch(`/api${path}`, { credentials: 'same-origin', ...options, headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }, body: options.body ? JSON.stringify(options.body) : undefined });
-  } catch { throw new ApiError('NETWORK_ERROR', 'Não foi possível conectar. Confira sua conexão e tente novamente.', 0); }
-  let data;
-  try { data = await response.json(); } catch { data = {}; }
-  if (!response.ok) {
-    const detail = data.error;
-    const error = new ApiError(detail?.code || data.code || (typeof detail === 'string' ? detail : 'REQUEST_FAILED'), detail?.message || data.message || 'Não foi possível concluir agora. Tente novamente.', response.status, data);
-    error.retryAfter = Number(response.headers.get('Retry-After')) || 0;
-    throw error;
+    let response;
+    try {
+      response = await fetch(`/api${path}`, { credentials: 'same-origin', ...options, headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }, body: options.body ? JSON.stringify(options.body) : undefined });
+    } catch { throw new ApiError('NETWORK_ERROR', 'Não foi possível conectar. Confira sua conexão e tente novamente.', 0); }
+    let data;
+    try { data = await response.json(); } catch { data = {}; }
+    if (!response.ok) {
+      const detail = data.error;
+      const error = new ApiError(detail?.code || data.code || (typeof detail === 'string' ? detail : 'REQUEST_FAILED'), detail?.message || data.message || 'Não foi possível concluir agora. Tente novamente.', response.status, data);
+      error.retryAfter = Number(response.headers.get('Retry-After')) || 0;
+      throw error;
+    }
+    return data;
+  } finally {
+    if (editing) viewAs.pendingWrites--;
   }
-  return data;
 }
 const post = (path, body = {}) => api(path, { method: 'POST', body });
 function verifyMagicLink(token) {
@@ -84,17 +87,17 @@ function errorMessage(error) {
   return messages[error?.code] || error?.message || 'Não foi possível concluir agora. Tente novamente.';
 }
 function currentUser() {
-  return state.previewUser || state.user || state.pendingUser || { firstName: '', lastName: '', email: state.challenge?.email || '', avatar: '' };
+  return state.user || state.pendingUser || { firstName: '', lastName: '', email: state.challenge?.email || '', avatar: '' };
 }
 function viewState() {
   return { ...state, user: currentUser(), group: state.group || { name: '', date: '', budget: 0, location: '', description: '' }, inviterName: state.invitation?.inviterName || state.group?.organizerName || '', verified: Boolean(state.user), passkeysSupported: supportsPasskeys() };
 }
 function shell(content) {
   const user = currentUser();
-  const canViewAs = state.user?.isAdmin && !state.previewUser;
+  const canViewAs = state.user?.isAdmin && !state.viewAs;
   const photo = avatar(`${user.firstName} ${user.lastName}`, 0, '', user.avatar ?? null);
-  const profile = state.previewUser ? `<span class="view-as-avatar">${photo}</span>` : `<button data-action="profile" aria-label="Minha conta">${photo}</button>`;
-  return `<header class="app-header"><a class="app-brand-link" href="#dashboard" data-route="dashboard" aria-label="Amigo Secreto, meus grupos">${brand()}</a><nav class="app-nav" aria-label="Navegação principal"><button class="${ADMIN_ROUTES.includes(route) ? '' : 'active'}" data-route="dashboard">Meus grupos</button>${canViewAs ? `<button class="${ADMIN_ROUTES.includes(route) ? 'active' : ''}" data-route="admin">Administração</button>` : ''}<button data-action="help">Como funciona</button></nav><div class="app-account">${canViewAs ? `<button class="btn btn-secondary admin-mobile-nav" data-route="admin" aria-label="Administração">${icon('shield', 17)}</button><button type="button" class="view-as-button" data-action="view-as" aria-haspopup="dialog">${icon('monitor', 16)} Visualizar como</button>` : ''}<span class="account-name">${escapeHtml(user.firstName)}</span>${profile}</div></header>${renderViewAsBanner(state.previewUser)}<main id="main" class="app-main transition-in" tabindex="-1">${content}</main><footer class="app-footer"><span>${icon('heart', 13)} Gente querida. Boas surpresas.</span><button data-action="help">Feito para aproximar.</button></footer>`;
+  const profile = `<button data-action="profile" aria-label="${state.viewAs ? 'Perfil da pessoa selecionada' : 'Minha conta'}">${photo}</button>`;
+  return `<header class="app-header"><a class="app-brand-link" href="#dashboard" data-route="dashboard" aria-label="Amigo Secreto, meus grupos">${brand()}</a><nav class="app-nav" aria-label="Navegação principal"><button class="${ADMIN_ROUTES.includes(route) ? '' : 'active'}" data-route="dashboard">Meus grupos</button>${canViewAs ? `<button class="${ADMIN_ROUTES.includes(route) ? 'active' : ''}" data-route="admin">Administração</button>` : ''}<button data-action="help">Como funciona</button></nav><div class="app-account">${canViewAs ? `<button class="btn btn-secondary admin-mobile-nav" data-route="admin" aria-label="Administração">${icon('shield', 17)}</button><button type="button" class="view-as-button" data-action="view-as" aria-haspopup="dialog">${icon('monitor', 16)} Visualizar como</button>` : ''}<span class="account-name">${escapeHtml(user.firstName)}</span>${profile}</div></header>${renderViewAsBanner(state.viewAs ? user : null)}<main id="main" class="app-main transition-in" tabindex="-1">${content}</main><footer class="app-footer"><span>${icon('heart', 13)} Gente querida. Boas surpresas.</span><button data-action="help">Feito para aproximar.</button></footer>`;
 }
 function loading() {
   const content = `<section class="auth-success-card" aria-live="polite"><span class="auth-form-symbol">${icon('gift', 27)}</span><h1>Um instante.</h1><p>Estamos preparando tudo para você.</p></section>`;
@@ -121,15 +124,6 @@ function render() {
     if (destination.startsWith('invitation') && state.inviteToken) query.set('token', state.inviteToken);
     link.href = href(destination, query);
   });
-  if (state.previewUser) {
-    document.querySelectorAll('#app [data-route], #app [data-action]').forEach(control => {
-      if (control.dataset.route ? viewAsRoutes.has(parseHash(`#${control.dataset.route}`).route) : viewAsActions.has(control.dataset.action)) return;
-      if (control.tagName === 'BUTTON') control.disabled = true;
-      else { control.setAttribute('aria-disabled', 'true'); control.removeAttribute('href'); }
-      control.title = control.dataset.action === 'reveal' ? 'O resultado individual fica na conta da pessoa.' : 'Disponível na sessão da pessoa.';
-    });
-    document.querySelectorAll('#app form :is(input,textarea,select,button)').forEach(control => { control.disabled = true; });
-  }
   setupPhotoInputs(document);
   document.querySelectorAll('#app form[data-form]').forEach(form => form.addEventListener('submit', submit));
   setupOTP(document.querySelector('#app'));
@@ -204,7 +198,7 @@ function clearPrivateState() {
   clearRosterDialogs();
   clearWishlists();
   clearAccountTools();
-  state.previewUser = null;
+  if (!state.user) state.viewAs = null;
   state.dependents = []; state.ownDependents = []; state.dependentsReturnGroupId = ''; state.dependentBusyId = ''; state.dependentGroupError = '';
   state.dependentsNextCursor = null; state.ownDependentsNextCursor = null; state.dependentsLoadingMore = false; state.groupDependentsLoadingMore = false;
   state.drawGuide = null;
@@ -405,7 +399,7 @@ async function navigate(next, options = {}) {
   const parsed = parseHash(`#${next}`);
   next = parsed.route;
   const query = parsed.params;
-  if (state.previewUser && !viewAsRoutes.has(next)) {
+  if (state.viewAs && !viewAsRoutes.has(next)) {
     next = 'dashboard';
     for (const key of [...query.keys()]) query.delete(key);
   }
@@ -552,7 +546,7 @@ function lockForm(form, locked) {
 async function completeLogin(user, fromLink = false) {
   if (!user?.id) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar sua conta. Tente entrar novamente.');
   if (state.user?.id !== user.id || !user.isAdmin) clearPrivateState();
-  state.user = user; state.pendingUser = null; clearChallenge(); resetSignupAvatar();
+  state.user = user; state.viewAs = null; state.pendingUser = null; clearChallenge(); resetSignupAvatar();
   if (state.inviteToken) await navigate('invitation', { token: state.inviteToken, replace: fromLink });
   else { const destination = state.returnTo || (state.authMode === 'register' ? 'account-ready' : 'dashboard'); state.returnTo = ''; await navigate(destination, { replace: fromLink }); }
 }
@@ -577,7 +571,7 @@ async function registerPasskey() {
   const dialog = document.querySelector('#passkey-offer-dialog');
   const panel = dialog?.querySelector('.account-tool-panel');
   const userId = state.user?.id, navigation = version;
-  if (!dialog?.open || !userId || state.previewUser || panel.getAttribute('aria-busy') === 'true') return;
+  if (!dialog?.open || !userId || state.viewAs || panel.getAttribute('aria-busy') === 'true') return;
   const current = () => dialog.open && state.user?.id === userId && navigation === version;
   const feedback = dialog.querySelector('[data-passkey-error]');
   feedback.hidden = true;
@@ -612,7 +606,7 @@ async function loadViewAsPeople(dialog, page) {
   const results = dialog.querySelector('.view-as-results');
   results.textContent = 'Buscando contas…';
   const search = dialog.querySelector('#view-as-search').value.trim();
-  const current = () => dialog.open && request === viewAsSearchVersion && navigation === version && state.user?.id === actorId && !state.previewUser;
+  const current = () => dialog.open && request === viewAsSearchVersion && navigation === version && state.user?.id === actorId && !state.viewAs;
   try {
     const data = await api(`/admin/users?${new URLSearchParams({ search, page, limit: '15' })}`);
     if (current()) results.innerHTML = renderViewAsResults(data, actorId);
@@ -623,7 +617,7 @@ async function loadViewAsPeople(dialog, page) {
 
 async function showViewAsPicker() {
   const dialog = document.querySelector('#view-as-dialog');
-  if (!dialog || !state.user?.isAdmin || state.previewUser) return;
+  if (!dialog || !state.user?.isAdmin || state.viewAs) return;
   dialog.innerHTML = renderViewAsPicker();
   dialog.querySelector('.view-as-search').addEventListener('submit', event => {
     event.preventDefault();
@@ -633,15 +627,35 @@ async function showViewAsPicker() {
   await loadViewAsPeople(dialog, '1');
 }
 
-async function enterViewAs(target) {
+async function enterViewAs(target, { discardChanges = false } = {}) {
   const dialog = target.closest('dialog');
   const actorId = state.user?.id, navigation = version;
   const id = target.dataset.userId;
-  if (!state.user?.isAdmin || state.previewUser || !id || !dialog?.open) return;
+  if (!state.user?.isAdmin || state.viewAs || !id || !dialog?.open || state.wishlist?.busy) return;
+  if (!discardChanges && wishlistDirty(state.wishlist)) {
+    showWishlistDiscard(() => { void enterViewAs(target, { discardChanges: true }).catch(error => toast(errorMessage(error))); });
+    return;
+  }
   const result = await api(`/admin/view-as/${segment(id)}`);
   if (!dialog.open || navigation !== version || state.user?.id !== actorId || result.user?.id !== id) return;
+  const actor = state.user;
   clearPrivateState();
-  state.previewUser = result.user;
+  state.viewAs = { actor, pendingWrites: 0 };
+  state.user = result.user;
+  await navigate('dashboard', { replace: true });
+}
+
+async function exitViewAs({ discardChanges = false } = {}) {
+  const viewAs = state.viewAs;
+  if (!viewAs) return;
+  if (viewAs.pendingWrites || busyDraw || state.wishlist?.busy) { toast('Aguarde a edição terminar.'); return; }
+  if (!discardChanges && wishlistDirty(state.wishlist)) {
+    showWishlistDiscard(() => { void exitViewAs({ discardChanges: true }); });
+    return;
+  }
+  state.user = viewAs.actor;
+  state.viewAs = null;
+  clearPrivateState();
   await navigate('dashboard', { replace: true });
 }
 
@@ -654,7 +668,7 @@ async function submit(event) {
   const data = new FormData(form);
   const value = name => String(data.get(name) || '').trim();
   const type = form.dataset.form;
-  if (state.previewUser || (type === 'login' && passkeyLoginRunning)) return;
+  if (type === 'login' && passkeyLoginRunning) return;
   lockForm(form, true);
   try {
     if (type === 'wishlist-save') {
@@ -1045,16 +1059,16 @@ function showHelp() {
   dialog.showModal();
 }
 async function logout(keepInvitation = false) {
+  if (state.viewAs) { await exitViewAs(); return; }
   const invite = keepInvitation ? state.inviteToken : '';
   await post('/auth/logout');
-  clearPrivateState(); state.user = null; state.pendingUser = null;
+  state.user = null; clearPrivateState(); state.pendingUser = null;
   clearChallenge(); resetSignupAvatar(); setInvitationToken(invite);
   if (!invite) { state.invitation = null; state.group = null; }
   state.invitation = null; state.authEmail = '';
   await navigate(keepInvitation ? 'invitation' : 'welcome', keepInvitation ? { token: invite } : {});
 }
 async function action(name, target) {
-  if (state.previewUser && !viewAsActions.has(name)) return;
   switch (name) {
     case 'view-as': await showViewAsPicker(); break;
     case 'view-as-page': {
@@ -1063,12 +1077,7 @@ async function action(name, target) {
       break;
     }
     case 'view-as-person': await enterViewAs(target); break;
-    case 'exit-view-as': {
-      if (!state.previewUser) break;
-      clearPrivateState();
-      await navigate('dashboard', { replace: true });
-      break;
-    }
+    case 'exit-view-as': await exitViewAs(); break;
     case 'login-passkey': await loginPasskey(); break;
     case 'register-passkey': await registerPasskey(); break;
     case 'wishlist-add': {
@@ -1098,7 +1107,24 @@ async function action(name, target) {
     case 'refresh-admin': if (state.user?.isAdmin) { state.adminOverview = null; await navigate(href(route, params).slice(1), { replace: true }); } break;
     case 'close-dialog': { const dialog = target.closest('dialog'); if (dialog?.querySelector('[aria-busy="true"]')) break; dialog?.close(); break; }
     case 'retry-route': if (!sessionLoaded) await start(); else await navigate(href(route, params).slice(1), { replace: true }); break;
-    case 'profile': if (state.user) await openProfileEditor(state.user, user => { if (state.user?.id !== user.id || !user.isAdmin) clearAdmin(); state.user = user; state.participants = state.participants.map(person => person.email === user.email ? { ...person, name: `${user.firstName} ${user.lastName}`, avatar: user.avatar } : person); render(); }); break;
+    case 'profile': {
+      if (!state.user) break;
+      const subjectId = state.user.id, viewAs = state.viewAs;
+      openProfileEditor(state.user, {
+        editingAs: Boolean(viewAs),
+        save: fields => post('/profile', fields),
+        onSaved(user) {
+          if (state.viewAs !== viewAs || state.user?.id !== subjectId) return;
+          if (user.id !== subjectId) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar o perfil atualizado.');
+          if (!user.isAdmin) clearAdmin();
+          state.user = user;
+          state.participants = state.participants.map(person => person.userId === user.id
+            ? { ...person, name: `${user.firstName} ${user.lastName}`, avatar: user.avatar } : person);
+          render();
+        },
+      });
+      break;
+    }
     case 'logout': await logout(); break;
     case 'switch-account': await logout(true); break;
     case 'toggle-password': { const input = document.getElementById(target.dataset.passwordTarget); if (!input) break; const show = input.type === 'password'; input.type = show ? 'text' : 'password'; target.textContent = show ? 'Ocultar' : 'Mostrar'; target.setAttribute('aria-pressed', String(show)); target.setAttribute('aria-label', `${show ? 'Ocultar' : 'Mostrar'} senha`); break; }
@@ -1201,7 +1227,7 @@ async function action(name, target) {
       break;
     }
     case 'reveal': {
-      if (!state.group?.id || !state.drawn) return;
+      if (state.viewAs || !state.group?.id || !state.drawn) return;
       const groupId = state.group.id, requestVersion = version, userId = state.user?.id;
       let result;
       try { result = await api(`/groups/${segment(groupId)}/result`); }
@@ -1236,7 +1262,7 @@ document.addEventListener('click', async event => {
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }
   const target = event.target.closest('[data-route],[data-action]');
   if (!target) return;
-  if (target.disabled || target.getAttribute('aria-disabled') === 'true') { event.preventDefault(); return; }
+  if (target.disabled) return;
   if (target.tagName === 'A' && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)) return;
   if (target.dataset.route) { event.preventDefault(); if (busyDraw) return; rememberAuthEmail(); await navigate(target.dataset.route, { id: target.dataset.adminId || target.dataset.groupId || undefined }); return; }
   const name = target.dataset.action;

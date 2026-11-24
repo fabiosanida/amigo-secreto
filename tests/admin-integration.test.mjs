@@ -80,7 +80,7 @@ test('private administration and creator deletion enforce server identity, full 
       assert.equal(user.data.user.participatingCount, 3); assert.equal(user.data.groupsParticipating.length, 1);
       assert.equal((await api('admin/groups?limit=500', { cookie: admin.cookie })).status, 400);
     });
-    await t.test('view as uses the selected account permissions without changing the real session or opening private results', async () => {
+    await t.test('view as reads and edits within the selected account without changing the real session or opening private results', async () => {
       const asOwner = `admin/view-as/${owner.id}`, asMember = `admin/view-as/${member.id}`;
       const drawnPath = `groups/${drawn.id}`;
       assert.equal((await api(asOwner)).status, 401);
@@ -102,7 +102,29 @@ test('private administration and creator deletion enforce server identity, full 
       assert.equal((await api(`${asOwner}/${drawnPath}/result/wishlist`, { cookie: admin.cookie })).status, 404);
       assert.equal((await api(`${asMember}/${drawnPath}/participants/${drawn.members[0].id}/wishlist`, { cookie: admin.cookie })).status, 200);
       assert.equal((await api(`admin/view-as/${outsider.id}/groups/${pending.id}`, { cookie: admin.cookie })).status, 404);
-      assert.equal((await api(`${asOwner}/${drawnPath}/date`, { cookie: admin.cookie, body: { date: '2030-12-24' } })).status, 405);
+      const date = new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10);
+      const editPath = `${drawnPath}/date`, body = { date };
+      assert.equal((await api(`${asOwner}/${editPath}`, { body })).status, 401);
+      assert.equal((await api(`${asOwner}/${editPath}`, { cookie: member.cookie, body })).status, 403);
+      assert.equal((await api(`${asMember}/${editPath}`, { cookie: admin.cookie, body: { date, organizerId: owner.id } })).status, 403);
+      const updated = await api(`${asOwner}/${editPath}`, { cookie: admin.cookie, body });
+      assert.equal(updated.status, 200);
+      assert.equal((await api(drawnPath, { cookie: member.cookie })).data.group.date, date);
+
+      const wish = { id: randomUUID(), text: 'Um livro de teste', url: '' };
+      assert.equal((await api(`${asMember}/${drawnPath}/wishlist`, { cookie: admin.cookie, body: { upserts: [wish], deletedIds: [] } })).status, 200);
+      assert.deepEqual((await api(`${drawnPath}/wishlist`, { cookie: member.cookie })).data.items, [wish]);
+      assert.deepEqual((await api(`${drawnPath}/wishlist`, { cookie: owner.cookie })).data.items, []);
+
+      const editedProfile = await api(`${asMember}/profile`, { cookie: admin.cookie, body: { firstName: 'Nome atualizado', lastName: fixture, avatar: null } });
+      assert.equal(editedProfile.status, 200);
+      assert.equal(editedProfile.data.user.id, member.id);
+      assert.equal((await api('session', { cookie: member.cookie })).data.user.firstName, 'Nome atualizado');
+      await api('profile', { cookie: member.cookie, body: { firstName: member.name, lastName: fixture } });
+
+      for (const restricted of ['auth/logout', 'auth/passkeys/register/options', 'auth/password/reset', 'admin/marmelada/check']) {
+        assert.equal((await api(`${asOwner}/${restricted}`, { cookie: admin.cookie, body: {} })).status, 404);
+      }
       const pendingView = await api(`${asOwner}/groups/${pending.id}`, { cookie: admin.cookie });
       assert.equal(pendingView.status, 200);
       const delivery = (await query('SELECT state,attempts FROM as_outbox WHERE group_id=$1', [pending.id])).rows[0];

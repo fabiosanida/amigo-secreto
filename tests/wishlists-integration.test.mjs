@@ -181,7 +181,8 @@ test('gift suggestions are isolated by group, identity and the actual private dr
 
       const creatorPage = await api(`groups/${g.id}`, { cookie: owner.cookie });
       assert.equal(creatorPage.status, 200); assert.equal(creatorPage.data.match, null);
-      assert.deepEqual(creatorPage.data.drawGuide, { status: 'single', starters: [g.members.get(foreign.id), target, g.members.get(b.id)] });
+      assert.deepEqual(creatorPage.data.drawGuide, { status: 'single',
+        starters: [foreign.id, a.id, b.id, child.id, owner.id].map(id => g.members.get(id)) });
       assert(!/giver_id|receiver_id|draw_edges/.test(JSON.stringify(creatorPage.data)));
       const memberPage = await api(`groups/${g.id}`, { cookie: a.cookie });
       assert.equal(memberPage.status, 200); assert.equal(memberPage.data.match, null);

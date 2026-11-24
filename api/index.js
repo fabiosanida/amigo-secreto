@@ -7,7 +7,7 @@ import { createDependent, createGroupDependent, listDependents, setDependentPart
 import { listWishlist, participantWishlist, recipientWishlist, saveWishlist } from '../lib/wishlists.js';
 import { adminGroup, adminGroups, adminOverview, adminUser, adminUsers } from '../lib/admin.js';
 import { requireAdmin } from '../lib/admin-access.js';
-import { viewAs } from '../lib/view-as.js';
+import { viewAsUser } from '../lib/view-as.js';
 import { beginPasskeyLogin, beginPasskeyRegistration, finishPasskeyLogin, finishPasskeyRegistration } from '../lib/passkeys.js';
 import { adminDeleteGroup, adminDeleteUser, adminGroupDeletePreview, adminUserDeletePreview } from '../lib/admin-delete.js';
 import { checkMarmelada, marmeladaGroup, marmeladaGroups } from '../lib/admin-marmelada.js';
@@ -53,6 +53,44 @@ async function readBody(req) {
   return body;
 }
 function send(res, status, body) { res.statusCode = status; res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.end(JSON.stringify(body)); }
+async function accountRequest(user, parts, method, search, body, reply, { delegated = false } = {}) {
+  const path = parts.length === 1 ? parts[0] : '';
+  if (method === 'POST' && path === 'profile') { await rateLimit('profile', user.id, 30, 3600); return reply(200, await updateProfile(user, body)); }
+  if (path === 'dependents' && method === 'GET') return reply(200, await listDependents(user, { groupId: search.get('groupId'), cursor: search.get('cursor') }));
+  if (path === 'dependents' && method === 'POST') return reply(201, await createDependent(user, body));
+  if (path === 'groups' && method === 'GET') return reply(200, await listGroups(user));
+  if (path === 'groups' && method === 'POST') return reply(201, await createGroup(user, body));
+  if (parts[0] === 'invitations' && parts[2] === 'accept' && parts.length === 3 && method === 'POST') return reply(200, await acceptInvitation(user, parts[1]));
+  if (parts[0] === 'groups') {
+    const id = parts[1];
+    if (parts.length === 3 && parts[2] === 'wishlist') {
+      if (method === 'GET') return reply(200, await listWishlist(user, id, { dependentId: search.get('dependentId'), cursor: search.get('cursor') }));
+      if (method === 'POST') return reply(200, await saveWishlist(user, id, body));
+    }
+    if (parts.length === 5 && parts[2] === 'participants' && parts[4] === 'wishlist' && method === 'GET') {
+      return reply(200, await participantWishlist(user, id, parts[3], { cursor: search.get('cursor') }));
+    }
+    if (!delegated && parts.length === 4 && parts[2] === 'result' && parts[3] === 'wishlist' && method === 'GET') {
+      return reply(200, await recipientWishlist(user, id, { dependentId: search.get('dependentId'), cursor: search.get('cursor') }));
+    }
+    if (parts.length === 2 && method === 'GET') return reply(200, await getGroup(user, id, { maintenance: !delegated }));
+    if (parts.length === 3 && ['date', 'budget', 'location'].includes(parts[2]) && method === 'POST') {
+      return reply(200, await updateGroupEvent(user, id, parts[2], body));
+    }
+    if (parts.length === 3 && parts[2] === 'dependents' && method === 'POST') return reply(201, await createGroupDependent(user, id, body));
+    if (parts.length === 4 && parts[2] === 'dependents' && method === 'POST') return reply(200, await setDependentParticipation(user, id, parts[3], body));
+    if (parts.length === 5 && parts[2] === 'participants' && parts[4] === 'remove' && method === 'POST') return reply(200, await removeParticipant(user, id, parts[3], body));
+    if (parts.length === 3 && parts[2] === 'accept' && method === 'POST') return reply(200, await acceptGroupInvitation(user, id));
+    if (parts.length === 3 && parts[2] === 'delete' && method === 'POST') return reply(200, await deleteGroup(user, id, body));
+    if (parts.length === 3 && parts[2] === 'invites' && method === 'POST') return reply(200, await invitePeople(user, id, body));
+    if (parts.length === 5 && parts[2] === 'invites' && parts[4] === 'resend' && method === 'POST') return reply(200, await resendInvite(user, id, parts[3]));
+    if (parts.length === 3 && parts[2] === 'draw' && method === 'POST') return reply(200, await drawGroup(user, id));
+    if (!delegated && parts.length === 3 && parts[2] === 'result' && method === 'GET') return reply(200, await getResult(user, id));
+    if (parts.length === 4 && parts[2] === 'notifications' && parts[3] === 'retry' && method === 'POST') return reply(200, await retryNotifications(user, id));
+  }
+  throw new ApiError(404, 'NOT_FOUND', 'Não encontramos essa página.');
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -95,8 +133,19 @@ export default async function handler(req, res) {
     if (parts[0] === 'admin') {
       requireAdmin(user);
       if (parts[1] === 'view-as') {
-        if (method !== 'GET') throw new ApiError(405, 'METHOD_NOT_ALLOWED', 'O modo de visualização é somente leitura.');
-        return send(res, 200, await viewAs(user, parts[2], parts.slice(3), url.searchParams));
+        const scoped = parts.slice(3);
+        const target = await viewAsUser(user, parts[2], { includeAvatar: !scoped.length || (scoped[0] === 'profile' && scoped.length === 1) });
+        if (method === 'GET' && !scoped.length) return send(res, 200, { user: target });
+        const reply = (status, data) => {
+          if (method === 'POST') {
+            const family = scoped[0];
+            // Keep the actual actor and target in the audit, without storing values or invite links.
+            console.info('view_as_change', { actorId: user.id, targetId: target.id, family,
+              ...(family === 'groups' && scoped.length > 2 ? { groupId: scoped[1], operation: scoped[2] } : {}) });
+          }
+          return send(res, status, data);
+        };
+        return await accountRequest(target, scoped, method, url.searchParams, body, reply, { delegated: true });
       }
       const filters = { ...Object.fromEntries(url.searchParams), ...(req.query || {}) };
       if (method === 'GET' && path === 'admin/overview') return send(res, 200, await adminOverview(user));
@@ -116,40 +165,7 @@ export default async function handler(req, res) {
       if (method === 'GET' && parts.length === 3 && parts[1] === 'groups') return send(res, 200, await adminGroup(user, parts[2]));
       if (method === 'GET' && parts.length === 3 && parts[1] === 'users') return send(res, 200, await adminUser(user, parts[2], filters));
     }
-    if (method === 'POST' && path === 'profile') { await rateLimit('profile', user.id, 30, 3600); return send(res, 200, await updateProfile(user, body)); }
-    if (path === 'dependents' && method === 'GET') return send(res, 200, await listDependents(user, { groupId: url.searchParams.get('groupId'), cursor: url.searchParams.get('cursor') }));
-    if (path === 'dependents' && method === 'POST') return send(res, 201, await createDependent(user, body));
-    if (path === 'groups' && method === 'GET') return send(res, 200, await listGroups(user));
-    if (path === 'groups' && method === 'POST') return send(res, 201, await createGroup(user, body));
-    if (parts[0] === 'invitations' && parts[2] === 'accept' && parts.length === 3 && method === 'POST') return send(res, 200, await acceptInvitation(user, parts[1]));
-    if (parts[0] === 'groups') {
-      const id = parts[1];
-      if (parts.length === 3 && parts[2] === 'wishlist') {
-        if (method === 'GET') return send(res, 200, await listWishlist(user, id, { dependentId: url.searchParams.get('dependentId'), cursor: url.searchParams.get('cursor') }));
-        if (method === 'POST') return send(res, 200, await saveWishlist(user, id, body));
-      }
-      if (parts.length === 5 && parts[2] === 'participants' && parts[4] === 'wishlist' && method === 'GET') {
-        return send(res, 200, await participantWishlist(user, id, parts[3], { cursor: url.searchParams.get('cursor') }));
-      }
-      if (parts.length === 4 && parts[2] === 'result' && parts[3] === 'wishlist' && method === 'GET') {
-        return send(res, 200, await recipientWishlist(user, id, { dependentId: url.searchParams.get('dependentId'), cursor: url.searchParams.get('cursor') }));
-      }
-      if (parts.length === 2 && method === 'GET') return send(res, 200, await getGroup(user, id));
-      if (parts.length === 3 && ['date', 'budget', 'location'].includes(parts[2]) && method === 'POST') {
-        return send(res, 200, await updateGroupEvent(user, id, parts[2], body));
-      }
-      if (parts.length === 3 && parts[2] === 'dependents' && method === 'POST') return send(res, 201, await createGroupDependent(user, id, body));
-      if (parts.length === 4 && parts[2] === 'dependents' && method === 'POST') return send(res, 200, await setDependentParticipation(user, id, parts[3], body));
-      if (parts.length === 5 && parts[2] === 'participants' && parts[4] === 'remove' && method === 'POST') return send(res, 200, await removeParticipant(user, id, parts[3], body));
-      if (parts.length === 3 && parts[2] === 'accept' && method === 'POST') return send(res, 200, await acceptGroupInvitation(user, id));
-      if (parts.length === 3 && parts[2] === 'delete' && method === 'POST') return send(res, 200, await deleteGroup(user, id, body));
-      if (parts.length === 3 && parts[2] === 'invites' && method === 'POST') return send(res, 200, await invitePeople(user, id, body));
-      if (parts.length === 5 && parts[2] === 'invites' && parts[4] === 'resend' && method === 'POST') return send(res, 200, await resendInvite(user, id, parts[3]));
-      if (parts.length === 3 && parts[2] === 'draw' && method === 'POST') return send(res, 200, await drawGroup(user, id));
-      if (parts.length === 3 && parts[2] === 'result' && method === 'GET') return send(res, 200, await getResult(user, id));
-      if (parts.length === 4 && parts[2] === 'notifications' && parts[3] === 'retry' && method === 'POST') return send(res, 200, await retryNotifications(user, id));
-    }
-    throw new ApiError(404, 'NOT_FOUND', 'Não encontramos essa página.');
+    return await accountRequest(user, parts, method, url.searchParams, body, (status, data) => send(res, status, data));
   } catch (error) {
     const known = error instanceof ApiError;
     if (!known) {

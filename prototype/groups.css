@@ -164,7 +164,6 @@ dialog.roster-dialog{width:min(530px,calc(100vw - 32px));max-width:none;max-heig
   padding-top: 4px;
 }
 .group-action-buttons .btn { min-height: 42px; padding: 9px 10px; font-size: 13px; line-height: 1.25; }
-.group-action-buttons [aria-disabled="true"] { cursor: default; opacity: .6; }
 .group-action-card:only-child .group-action-buttons { max-width: 250px; }
 @media(max-width: 760px) {
   .group-action-grid { grid-template-columns: minmax(0, 1fr); }
@@ -182,3 +181,11 @@ dialog.roster-dialog{width:min(530px,calc(100vw - 32px));max-width:none;max-heig
   .group-event-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
   .group-event-strip > div:nth-child(3) { grid-column: 1 / -1; }
 }
+
+.group-draw-guide-starters summary {
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.group-draw-guide-starters details[open] ul { margin-top: 8px; }
