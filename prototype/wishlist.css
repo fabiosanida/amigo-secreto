@@ -77,7 +77,7 @@
 .wl-directory-name strong { font-size: 15px; font-weight: 600; line-height: 1.4; }
 .wl-directory-name small, .wl-directory-person > .icon { color: #596c52; }
 .wl-own-actions .btn { width: 100%; }
-.wl-item-fields { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
+.wl-item-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .wl-item-fields .field { margin: 0; }
 .wl-item-fields .field > .wl-link-label { color: inherit; font: inherit; }
 .wl-link-label small { color: var(--wl-muted); font-size: 12px; }
@@ -98,5 +98,4 @@
 @media (max-width: 600px) {
   .wl-directory-heading { flex-direction: column; gap: 12px; border-radius: 16px; }
   .wl-directory-person { min-height: 68px; }
-  .wl-item-fields { grid-template-columns: minmax(0, 1fr); }
 }
