@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { renderAuth, AUTH_ROUTES } from '../prototype/auth.js';
 import { renderGroups, GROUP_ROUTES } from '../prototype/groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from '../prototype/dependents.js';
-import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, wishlistDirty, validateWishlistItem, emptyWishlistItem } from '../prototype/wishlist.js';
+import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem } from '../prototype/wishlist.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from '../prototype/admin.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from '../prototype/ui.js';
 
@@ -24,7 +24,7 @@ function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {})
     history: { pushState(a, b, hash) { location.hash = hash; }, replaceState(a, b, hash) { location.hash = hash; } },
     document: { body: { dataset: {}, style: {} }, querySelector: selector => selector === '#app' ? app : selectors[selector] || null, querySelectorAll: () => [], addEventListener: noop },
     window: { scrollTo: noop, addEventListener(type, listener) { listeners[type] = listener; } },
-    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderDependents, DEPENDENT_ROUTES, WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, wishlistDirty, validateWishlistItem, emptyWishlistItem, renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
+    renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderDependents, DEPENDENT_ROUTES, WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem, renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
     showMarmeladaResult: result => { presentations.push(result); },
     setupWishlistFields: noop, showWishlistDiscard: callback => discards.push(callback),
     setupInviteFields: noop, setInviteFieldsBusy: noop, setupGroupFields: noop, parseBudget: Number, setupOTP: noop,
@@ -819,7 +819,7 @@ async function loadedWishlist(extra = {}) {
 }
 function recipientDialogFixture() {
   const listeners = {}, body = { scrollTop: 0 };
-  const dialog = { open: false, innerHTML: '', querySelector: selector => selector === '.wl-dialog-body' ? body : null,
+  const dialog = { open: false, innerHTML: '', contains: () => false, querySelector: selector => selector === '.wl-dialog-body' ? body : null,
     addEventListener(type, listener) { listeners[type] = listener; },
     showModal() { this.open = true; },
     close() { const wasOpen = this.open; this.open = false; if (wasOpen) listeners.close?.(); },
@@ -969,4 +969,40 @@ test('long Unicode suggestions are split by UTF-8 payload size as well as item c
   assert.deepEqual(written.map(item => item.id), ideas.map(item => item.id));
   h.requests.filter(request => request.path === '/api/groups/group-1').at(-1).respond(dependentGroupPayload()); await saving;
   assert.equal(h.location.hash, '#group?id=group-1'); assert.equal(h.state.wishlist, null);
+});
+
+test('gift directory requests only the selected participation and drops late pages on group changes', async () => {
+  const { dialog } = recipientDialogFixture();
+  const h = harness({ hash: '#gift-ideas?id=group-1', selectors: { '#wishlist-recipient-dialog': dialog } });
+  h.requests[0].respond({ user: signedInUser }); await tick();
+  const participants = [
+    { id: 'own-membership', userId: signedInUser.id, name: 'Pessoa Conectada', status: 'accepted' },
+    { id: 'another-member', userId: 'user-3', name: 'Pessoa do Grupo', status: 'accepted' },
+  ];
+  h.requests.at(-1).respond({ ...dependentGroupPayload({ drawn: true }), participants }); await tick();
+  assert.match(h.app.innerHTML, /Sugestões do grupo/);
+  assert.equal(h.requests.length, 2);
+  await h.action('wishlist-participant', { dataset: { membershipId: 'wrong-group' } });
+  assert.equal(h.requests.length, 2);
+
+  const opening = h.action('wishlist-participant', { dataset: { membershipId: 'another-member' } });
+  const path = '/api/groups/group-1/participants/another-member/wishlist';
+  assert.equal(h.requests.at(-1).path, path);
+  h.requests.at(-1).respond({ owner: { name: 'Pessoa do Grupo' }, items: [ownWishlistItem], nextCursor: '50' });
+  await opening;
+  assert.match(dialog.innerHTML, /Sugestões de Pessoa do Grupo/);
+  const loadingMore = h.action('wishlist-recipient-more', { dataset: {} });
+  const pending = h.requests.at(-1);
+  assert.equal(pending.path, path + '?cursor=50');
+
+  const changing = h.navigate('group?id=group-2');
+  h.requests.at(-1).respond({ group: { ...invitedGroup, id: 'group-2', drawn: false }, participants });
+  await changing;
+  pending.respond({ items: [{ id: 'stale', text: 'Página privada anterior', url: '' }], nextCursor: null });
+  await loadingMore;
+  assert.equal(h.state.recipientWishlist, null);
+  assert.equal(dialog.open, false);
+  assert.equal(dialog.innerHTML, '');
+  assert.doesNotMatch(h.app.innerHTML, /data-route="gift-ideas/);
+  assert(!h.requests.some(request => request.path.endsWith('/result')));
 });

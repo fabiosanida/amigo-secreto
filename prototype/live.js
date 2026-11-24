@@ -5,7 +5,7 @@ import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from './ui.js';
 import { renderAuth, AUTH_ROUTES } from './auth.js';
 import { renderGroups, GROUP_ROUTES } from './groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from './dependents.js';
-import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, wishlistDirty, validateWishlistItem, emptyWishlistItem, setupWishlistFields, showWishlistDiscard } from './wishlist.js';
+import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem, setupWishlistFields, showWishlistDiscard } from './wishlist.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from './admin.js';
 import { showMarmeladaResult } from './marmelada.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
@@ -24,7 +24,7 @@ const state = {
   production: true, user: null, groups: [], pendingInvitations: [], acceptingInvitationId: '', dashboardInvitationErrors: {}, group: null, participants: [],
   dependents: [], ownDependents: [], dependentResults: [], dependentsReturnGroupId: '', dependentBusyId: '', dependentGroupError: '',
   dependentsNextCursor: null, ownDependentsNextCursor: null, dependentsLoadingMore: false, groupDependentsLoadingMore: false,
-  wishlist: null, recipientWishlist: null,
+  wishlist: null, recipientWishlist: null, drawGuide: null,
   marmeladaData: null, marmeladaSearch: '',
   adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
   role: 'member', organizerEmail: '', drawn: false, revealed: false, match: null,
@@ -33,7 +33,7 @@ const state = {
   invitationError: '', invitationErrorCode: '', returnTo: '', challenge: storedChallenge, pendingUser: null,
   authMode: storedChallenge?.purpose === 'recover' ? 'recover' : storedChallenge ? 'register' : 'login', authEmail: storedChallenge?.email || '', accountCheck: null, resetToken: '', resendAt: Number(storedChallenge?.resendAt) || 0, requestPayload: null,
 };
-const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal', 'wishlist']);
+const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal', ...WISHLIST_ROUTES]);
 const organizerRoutes = new Set(['invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn']);
 const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
 const signedRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
@@ -41,7 +41,7 @@ let route = 'welcome', params = new URLSearchParams(), version = 0, toastTimer;
 let busyDraw = false, sessionLoaded = false;
 let pendingMagicVerification = null, recipientWishlistRequest = 0;
 const pendingActions = new Set();
-const titles = { wishlist: 'Minhas sugestões', dependents: 'Meus dependentes', 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
+const titles = { 'gift-ideas': 'Sugestões do grupo', wishlist: 'Minhas sugestões', dependents: 'Meus dependentes', 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
 
 class ApiError extends Error {
   constructor(code, message, status, payload) { super(message); this.code = code; this.status = status; this.payload = payload; }
@@ -186,6 +186,7 @@ function clearPrivateState() {
   clearWishlists();
   state.dependents = []; state.ownDependents = []; state.dependentsReturnGroupId = ''; state.dependentBusyId = ''; state.dependentGroupError = '';
   state.dependentsNextCursor = null; state.ownDependentsNextCursor = null; state.dependentsLoadingMore = false; state.groupDependentsLoadingMore = false;
+  state.drawGuide = null;
   clearAdmin(); state.groups = []; state.pendingInvitations = []; state.acceptingInvitationId = ''; state.dashboardInvitationErrors = {}; state.group = null; state.participants = []; state.match = null; state.revealed = false; state.dependentResults = []; state.drawn = false; state.role = 'member'; state.inviteEmails = []; state.inviteQueued = []; setAvatarDirectory([]);
 }
 function clearChallenge() {
@@ -211,6 +212,7 @@ function rememberDashboard(data) {
 function rememberGroup(data) {
   const group = data.group || data;
   state.group = group;
+  state.drawGuide = data.drawGuide || null;
   state.ownDependents = data.ownDependents || group.ownDependents || []; state.dependentGroupError = '';
   state.ownDependentsNextCursor = data.ownDependentsNextCursor || null; state.groupDependentsLoadingMore = false;
   state.participants = data.participants || group.participants || [];
@@ -307,24 +309,39 @@ async function saveWishlist() {
     renderWishlistUpdate('.wl-error');
   } finally { if (stillCurrent()) { list.busy = false; } }
 }
+function wishlistViewPath(groupId, list, cursor = '') {
+  if (!list.membershipId) return wishlistPath(groupId, list.dependentId, cursor, true);
+  return `/groups/${segment(groupId)}/participants/${segment(list.membershipId)}/wishlist${cursor ? `?${new URLSearchParams({ cursor })}` : ''}`;
+}
+
 function drawRecipientWishlist() {
   const list = state.recipientWishlist, dialog = document.querySelector('#wishlist-recipient-dialog');
   if (!list || !dialog) return;
   const scroll = dialog.querySelector('.wl-dialog-body')?.scrollTop || 0;
+  const focused = document.activeElement;
+  const action = dialog.contains(focused) ? focused?.dataset.action : '';
   dialog.innerHTML = renderRecipientWishlist(list.data, { ...list, groupName: state.group?.name || '' });
+  if (action) {
+    const replacement = [...dialog.querySelectorAll('[data-action]')].find(button => button.dataset.action === action && !button.disabled);
+    (replacement || dialog.querySelector('.wl-close'))?.focus({ preventScroll: true });
+  }
   const body = dialog.querySelector('.wl-dialog-body'); if (body) body.scrollTop = scroll;
 }
-async function openRecipientWishlist(dependentId = '') {
+async function openRecipientWishlist({ dependentId = '', membershipId = '' } = {}) {
   const groupId = state.group?.id, userId = state.user?.id, navigation = version;
-  if (!groupId || !userId || !state.revealed || route !== 'reveal') return;
-  if (dependentId && !state.dependentResults.some(result => result.dependent.id === dependentId)) return;
+  const expectedRoute = membershipId ? 'gift-ideas' : 'reveal';
+  if (!groupId || !userId || route !== expectedRoute) return;
+  if (membershipId) {
+    if (!canBrowseGroupWishlists(state) || !state.participants.some(person =>
+      person.id === membershipId && person.status === 'accepted' && !person.isRemoved)) return;
+  } else if (!state.revealed || (dependentId && !state.dependentResults.some(result => result.dependent.id === dependentId))) return;
   const request = ++recipientWishlistRequest, dialog = document.querySelector('#wishlist-recipient-dialog');
   if (!dialog) return;
-  const list = { dependentId, data: null, loading: true, loadingMore: false, error: '' };
+  const list = { dependentId, membershipId, data: null, loading: true, loadingMore: false, error: '' };
   state.recipientWishlist = list; drawRecipientWishlist(); if (!dialog.open) dialog.showModal();
-  const stillCurrent = () => request === recipientWishlistRequest && navigation === version && state.user?.id === userId && state.group?.id === groupId && state.recipientWishlist === list && route === 'reveal' && dialog.open;
+  const stillCurrent = () => request === recipientWishlistRequest && navigation === version && state.user?.id === userId && state.group?.id === groupId && state.recipientWishlist === list && route === expectedRoute && dialog.open;
   try {
-    const result = await api(wishlistPath(groupId, dependentId, '', true));
+    const result = await api(wishlistViewPath(groupId, list));
     if (!stillCurrent()) return;
     list.data = result;
   } catch (error) {
@@ -336,11 +353,11 @@ async function openRecipientWishlist(dependentId = '') {
 async function loadMoreRecipientWishlist() {
   const list = state.recipientWishlist, groupId = state.group?.id, userId = state.user?.id, navigation = version, request = recipientWishlistRequest;
   const dialog = document.querySelector('#wishlist-recipient-dialog');
-  if (!list?.data?.nextCursor || list.loadingMore || !dialog?.open || route !== 'reveal') return;
-  const stillCurrent = () => request === recipientWishlistRequest && navigation === version && state.user?.id === userId && state.recipientWishlist === list && dialog.open;
+  if (!list?.data?.nextCursor || list.loadingMore || !dialog?.open || route !== (list.membershipId ? 'gift-ideas' : 'reveal')) return;
+  const stillCurrent = () => request === recipientWishlistRequest && navigation === version && state.user?.id === userId && state.group?.id === groupId && state.recipientWishlist === list && dialog.open;
   list.loadingMore = true; list.error = ''; drawRecipientWishlist();
   try {
-    const result = await api(wishlistPath(groupId, list.dependentId, list.data.nextCursor, true));
+    const result = await api(wishlistViewPath(groupId, list, list.data.nextCursor));
     if (!stillCurrent()) return;
     const known = new Set(list.data.items.map(item => item.id));
     list.data.items.push(...(result.items || []).filter(item => !known.has(item.id))); list.data.nextCursor = result.nextCursor;
@@ -444,6 +461,7 @@ async function navigate(next, options = {}) {
       const data = await loadGroup(params.get('id'));
       if (navigation !== version) return;
       rememberGroup(data);
+      if (route === 'gift-ideas' && !canBrowseGroupWishlists(state)) { await navigate('group', { id: state.group.id, replace: true }); return; }
       if (route === 'wishlist') {
         const dependentId = params.get('dependentId') || '';
         const list = await api(wishlistPath(state.group.id, dependentId));
@@ -901,7 +919,8 @@ async function action(name, target) {
       list.items = list.items.filter(item => item.id !== id); renderWishlistUpdate('[data-action="wishlist-add"]'); break;
     }
     case 'wishlist-more': await loadMoreWishlist(); break;
-    case 'wishlist-recipient': await openRecipientWishlist(target.dataset.dependentId || ''); break;
+    case 'wishlist-recipient': await openRecipientWishlist({ dependentId: target.dataset.dependentId }); break;
+    case 'wishlist-participant': await openRecipientWishlist({ membershipId: target.dataset.membershipId }); break;
     case 'wishlist-recipient-more': await loadMoreRecipientWishlist(); break;
     case 'help': showHelp(); break;
     case 'edit-group-date': showGroupDateEditor(); break;
@@ -1047,7 +1066,7 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['remove-participant', 'add-group-dependent', 'dependents-more', 'group-dependents-more', 'edit-group-date', 'wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['remove-participant', 'add-group-dependent', 'dependents-more', 'group-dependents-more', 'edit-group-date', 'wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-participant', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }

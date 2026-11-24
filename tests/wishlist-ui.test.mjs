@@ -48,3 +48,35 @@ test('unsaved draft detection includes removals, added empty rows and text chang
   assert(validateWishlistItem({ text: 'Uma ideia', url: 'javascript:alert(1)' }));
   assert.equal(validateWishlistItem({ text: 'Uma ideia', url: 'https://example.test/' }), '');
 });
+
+test('gift directory includes confirmed people and participating dependents after the draw', () => {
+  const participants = [
+    { id: 'me', userId: 'user-1', name: 'Ana', status: 'accepted' },
+    { id: 'child', name: '<Lia>', isDependent: true, status: 'accepted' },
+    { id: 'pending', name: 'Convidada pendente', status: 'sent' },
+    { id: 'removed', name: 'Participante removido', status: 'accepted', isRemoved: true },
+  ];
+  const state = { production: true, group, user: { id: 'user-1' }, participants, drawn: true };
+  const html = renderWishlists('gift-ideas', state);
+  assert.match(html, /Sugestões do grupo/);
+  assert.match(html, /data-membership-id="child"/);
+  assert.match(html, /&lt;Lia&gt;/);
+  assert.match(html, /Dependente/);
+  assert.doesNotMatch(html, /Convidada pendente|Participante removido|reveal/i);
+  assert.equal(renderWishlists('gift-ideas', { ...state, drawn: false }), '');
+  assert.equal(renderWishlists('gift-ideas', { ...state, user: { id: 'foreign' } }), '');
+  assert.match(renderWishlistCard(state), /gift-ideas\?id=group-1/);
+});
+
+test('group wishes use the selected list and editor links use the same safe rendering', () => {
+  const withLink = { ...item, url: 'https://example.test/livro' };
+  const editor = renderWishlists('wishlist', { group, wishlist: { owner, items: [withLink] } });
+  assert.match(editor, /Nome ou descrição do presente/);
+  assert.match(editor, /Os participantes deste grupo podem ver estas sugestões após o sorteio/);
+  assert.match(editor, /href="https:\/\/example.test\/livro" target="_blank" rel="noopener noreferrer"/);
+  const dialog = renderRecipientWishlist({ owner, items: [item, withLink] }, { membershipId: 'membership-1', groupName: group.name });
+  assert.match(dialog, /Voltar às sugestões do grupo/);
+  assert.equal((dialog.match(/class="wl-product-link"/g) || []).length, 1);
+  const retry = renderRecipientWishlist(null, { membershipId: 'membership-1', error: 'Falha temporária' });
+  assert.match(retry, /data-action="wishlist-participant" data-membership-id="membership-1"/);
+});

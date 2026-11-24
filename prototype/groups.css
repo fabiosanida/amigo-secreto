@@ -95,3 +95,55 @@ dialog.roster-dialog{width:min(530px,calc(100vw - 32px));max-width:none;max-heig
 
 .group-participant-tools{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:9px}.group-participant-tools .btn{white-space:normal;text-align:center;line-height:1.5}.group-participant-tools svg{flex:none}@media(max-width:680px){.group-participant-tools{width:100%;justify-content:stretch}.group-participant-tools .btn{flex:1;min-width:135px}}
 @media(max-width:680px){.group-roster-actions{flex-direction:column;align-items:flex-end;gap:7px}.group-person-action .group-roster-actions .group-role{white-space:normal}}
+
+.group-draw-guide {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(230px, 0.65fr);
+  align-items: start;
+  gap: 19px;
+  margin: 0 0 24px;
+  padding: clamp(20px, 3vw, 30px);
+  border: 1px solid #dce4d3;
+  border-radius: 18px;
+  background: #f7f7ee;
+}
+.group-draw-guide-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 13px;
+  color: #813e29;
+  background: #f9e6dc;
+}
+.group-draw-guide-copy .group-draw-guide-label {
+  margin: 0 0 5px;
+  color: #755744;
+  font-size: 12px;
+  font-weight: 600;
+}
+.group-draw-guide h2 { margin: 0 0 8px; font: 400 clamp(25px, 3vw, 32px)/1.15 var(--serif); }
+.group-draw-guide-copy p { margin: 0; color: #52644f; font-size: 14px; line-height: 1.65; }
+.group-draw-guide-starters h3 { margin: 0 0 9px; font: 600 13px/1.4 var(--sans); }
+.group-draw-guide-starters ul { display: flex; flex-wrap: wrap; gap: 7px; padding: 0; margin: 0; list-style: none; }
+.group-draw-guide-starters li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid #dce4d3;
+  border-radius: 24px;
+  background: #fffdf6;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.group-draw-guide-starters .avatar { width: 28px; height: 28px; flex: none; }
+@media (max-width: 760px) {
+  .group-draw-guide { grid-template-columns: auto minmax(0, 1fr); gap: 13px; }
+  .group-draw-guide-starters { grid-column: 2; }
+}
+@media (max-width: 420px) {
+  .group-draw-guide-icon { width: 40px; height: 40px; }
+  .group-draw-guide-starters { grid-column: 1 / -1; }
+}

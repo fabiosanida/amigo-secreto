@@ -4,7 +4,7 @@ import { accountAvailability, clientIP, loginAuthentication, logout, rateLimit, 
 import { acceptGroupInvitation, acceptInvitation, createGroup, deleteGroup, drainOutbox, drawGroup, getGroup, getInvitation, getResult, invitePeople, listGroups, removeParticipant, resendInvite, retryNotifications, trackOpen, updateGroupDate } from '../lib/groups.js';
 import { updateProfile } from '../lib/profile.js';
 import { createDependent, createGroupDependent, listDependents, setDependentParticipation } from '../lib/dependents.js';
-import { listWishlist, recipientWishlist, saveWishlist } from '../lib/wishlists.js';
+import { listWishlist, participantWishlist, recipientWishlist, saveWishlist } from '../lib/wishlists.js';
 import { adminGroup, adminGroups, adminOverview, adminUser, adminUsers } from '../lib/admin.js';
 import { requireAdmin } from '../lib/admin-access.js';
 import { adminDeleteGroup, adminDeleteUser, adminGroupDeletePreview, adminUserDeletePreview } from '../lib/admin-delete.js';
@@ -117,6 +117,9 @@ export default async function handler(req, res) {
       if (parts.length === 3 && parts[2] === 'wishlist') {
         if (method === 'GET') return send(res, 200, await listWishlist(user, id, { dependentId: url.searchParams.get('dependentId'), cursor: url.searchParams.get('cursor') }));
         if (method === 'POST') return send(res, 200, await saveWishlist(user, id, body));
+      }
+      if (parts.length === 5 && parts[2] === 'participants' && parts[4] === 'wishlist' && method === 'GET') {
+        return send(res, 200, await participantWishlist(user, id, parts[3], { cursor: url.searchParams.get('cursor') }));
       }
       if (parts.length === 4 && parts[2] === 'result' && parts[3] === 'wishlist' && method === 'GET') {
         return send(res, 200, await recipientWishlist(user, id, { dependentId: url.searchParams.get('dependentId'), cursor: url.searchParams.get('cursor') }));

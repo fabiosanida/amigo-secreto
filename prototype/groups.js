@@ -84,6 +84,28 @@ function participantRow(person, index, state) {
   return `<tr><td><div class="group-person">${avatar(person.name, person.color ?? index, 'small', person.avatar ?? null)}<div><strong>${escape(person.name)} ${isMe ? '<small>você</small>' : ''}${isDependent ? '<span class="dependent-person-tag">Dependente</span>' : ''}</strong><span>${isDependent ? `Responsável: ${escape(person.responsibleName || 'uma pessoa do grupo')}` : escape(person.email)}</span></div></div></td><td><span class="group-status group-status-${status.className}" ${person.status === 'opened' ? 'title="Abertura estimada: sinais automáticos do e-mail não garantem que a mensagem foi lida."' : ''}>${icon(status.glyph, 13)} ${status.text}${person.status === 'opened' ? icon('info', 12) : ''}</span></td><td class="group-person-action"><div class="group-roster-actions">${rowAction}${canRemove ? `<button type="button" class="group-remove-person" data-action="remove-participant" data-participant-id="${escape(person.id)}" aria-label="Remover ${escape(person.name)} do grupo">${icon('x', 14)} Remover</button>` : ''}</div></td></tr>`;
 }
 
+function renderDrawGuide(state) {
+  if (!state.production || !state.drawn || !state.user?.id || state.group?.organizerId !== state.user.id || !state.drawGuide) return '';
+  const { status, starters = [] } = state.drawGuide;
+  const people = new Map(state.participants.map(person => [person.id, person]));
+  const candidates = starters.map(id => people.get(id)).filter(Boolean);
+  const message = status === 'single' ? 'O sorteio formou uma única corrente. Qualquer pessoa sorteada pode começar. Ela entrega o presente, e quem recebe é a próxima pessoa a presentear.'
+    : status === 'multiple' ? 'Este sorteio tem mais de uma corrente. Quando uma corrente terminar, a troca continua com alguém que ainda não entregou seu presente.'
+    : 'Quando uma pessoa entregar o presente, quem receber pode continuar a troca.';
+  return `<section class="group-draw-guide" aria-labelledby="draw-guide-title">
+    <span class="group-draw-guide-icon">${icon('gift', 24)}</span>
+    <div class="group-draw-guide-copy">
+      <p class="group-draw-guide-label">Só para quem organiza</p>
+      <h2 id="draw-guide-title">Quem começa a troca?</h2>
+      <p>${message}</p>
+    </div>
+    ${status === 'single' && candidates.length ? `<div class="group-draw-guide-starters">
+      <h3>Sugestões para começar</h3>
+      <ul>${candidates.map(person => `<li><span aria-hidden="true">${avatar(person.name, person.color, 'small', person.avatar ?? null)}</span><span>${escape(person.name)}</span></li>`).join('')}</ul>
+    </div>` : ''}
+  </section>`;
+}
+
 function groupPage(state) {
   const people = state.participants || [], confirmed = accepted(state), waiting = pending(state), failed = people.filter(p => p.status === 'failed').length;
   const isMember = state.role === 'member';
@@ -92,6 +114,7 @@ function groupPage(state) {
   const memberSidebar = `<div class="panel group-next-card group-member-card"><span class="group-member-check">${icon(state.drawn ? 'gift' : 'check', 25)}</span><span class="eyebrow">VOCÊ FAZ PARTE</span><h2>${state.drawn ? 'Sua surpresa está pronta.' : 'Sua participação está confirmada.'}</h2><p>${state.drawn ? 'Chegou a hora de descobrir quem vai receber seu carinho.' : `Agora é só aguardar ${escape(organizerName)} fazer o sorteio. Vamos avisar por e-mail quando seu amigo secreto estiver definido.`}</p><div class="group-member-summary">${icon('users', 17)} <span><strong>${confirmed.length} pessoas</strong> já confirmaram presença.</span></div>${state.drawn ? `<button class="btn btn-primary" data-route="reveal">${icon('gift', 17)} ${state.revealed ? 'Ver meu amigo secreto' : 'Descobrir meu amigo'}</button><small>Consulte seu resultado na sua conta.</small>` : `<div class="group-member-waiting">${icon('clock', 16)} Aguardando o sorteio</div>`}</div>`;
   return `<section class="group-detail-page">${back('dashboard', 'Meus grupos')}<div class="group-detail-title"><div><span class="eyebrow">GENTE QUERIDA, PRESENTE CERTO</span><h1>${escape(state.group?.name)}</h1><p>${escape(state.group?.description || 'Um encontro para criar novas memórias.')}</p></div><span class="pill ${state.drawn ? 'pill-green' : 'pill-orange'}">${icon(state.drawn ? 'check-circle' : 'clock', 14)} ${state.drawn ? 'Sorteio realizado' : 'Aguardando sorteio'}</span></div>
     <div class="group-event-strip"><div>${icon('calendar', 21)}<span>DATA DA TROCA<strong>${dateLabel(state.group?.date)}</strong>${state.production && state.group?.organizerId === state.user?.id ? `<button type="button" class="group-edit-date" data-action="edit-group-date" aria-label="Editar data da troca">${icon('calendar', 14)} Editar data</button>` : ''}</span></div><div>${icon('gift', 21)}<span>VALOR SUGERIDO<strong>${currency(state.group?.budget)}</strong></span></div><div>${icon('heart', 21)}<span>NOSSO PONTO DE ENCONTRO<strong>${escape(state.group?.location || 'A combinar')}</strong></span></div><span class="group-event-art" aria-hidden="true">✳</span></div>
+    ${renderDrawGuide(state)}
     ${renderWishlistCard(state)}
     ${state.production && !isMember && state.group?.notificationFailures ? `<div class="inline-notice" role="status">${icon('mail', 20)}<div><strong>Alguns avisos por e-mail não foram enviados.</strong><p>${state.drawn ? 'O sorteio está salvo e os resultados já podem ser consultados na conta.' : 'Seu grupo está salvo. Você pode acompanhar os envios e tentar novamente por aqui.'}</p><button class="btn btn-secondary" data-action="retry-notifications">Tentar enviar novamente ${icon('refresh', 16)}</button></div></div>` : ''}
     ${state.drawn ? `<div class="group-drawn-banner"><span class="group-icon-circle">${icon('sparkles', 22)}</span><div><strong>A surpresa já tem destino.</strong><p>O sorteio foi realizado. Cada participante pode descobrir seu amigo secreto.</p></div><button class="btn btn-primary" data-route="reveal">${state.revealed ? 'Ver meu amigo secreto' : 'Descobrir meu amigo'} ${icon('arrow-right', 16)}</button></div>` : ''}

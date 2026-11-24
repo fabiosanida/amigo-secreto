@@ -54,10 +54,14 @@ test('gift suggestions are isolated by group, identity and the actual private dr
   const list = (g, p, child, cursor) => api(`groups/${g.id}/wishlist?${new URLSearchParams({ ...(child ? { dependentId: child.id } : {}), ...(cursor ? { cursor } : {}) })}`, { cookie: p.cookie });
   const save = (g, p, upserts = [], deletedIds = [], child) => api(`groups/${g.id}/wishlist`, { cookie: p.cookie, body: { upserts, deletedIds, ...(child ? { dependentId: child.id } : {}) } });
   const assigned = (g, p, child, extra = {}) => api(`groups/${g.id}/result/wishlist?${new URLSearchParams({ ...(child ? { dependentId: child.id } : {}), ...extra })}`, { cookie: p.cookie });
+  const shared = (g, p, membershipId, cursor) => api(
+    `groups/${g.id}/participants/${membershipId}/wishlist${cursor ? `?cursor=${cursor}` : ''}`, { cookie: p?.cookie });
   try {
     const owner = await person('owner'), a = await person('guardian-a'), b = await person('guardian-b'), outsider = await person('outsider'), pending = await person('pending');
     const g = await group(owner, [owner, a, b]), other = await group(a, [a, b]), pendingGroup = await group(owner, [owner]);
     await query("INSERT INTO as_memberships(id,group_id,email,status,invite_token_hash,invite_expires_at) VALUES($1,$2,$3,'sent',$4,now()+interval '1 day')", [randomUUID(), pendingGroup.id, pending.email, hashToken(newToken())]);
+    const pendingMemberId = randomUUID();
+    await query("INSERT INTO as_memberships(id,group_id,email,status) VALUES($1,$2,$3,'sent')", [pendingMemberId, g.id, pending.email]);
     const child = await dependent(a, 'Lia'), inactive = await dependent(a, 'Inativa'), foreign = await dependent(b, 'Caio');
     await activate(g, child, a); await activate(g, foreign, b); await activate(other, child, a);
     const own = item('Um livro de mistério', 'https://example.test/livro'), childWish = item('Blocos de montar'), bWish = item('Uma caneca azul'), otherWish = item('Somente no outro grupo');
@@ -74,6 +78,15 @@ test('gift suggestions are isolated by group, identity and the actual private dr
       const attempt = await api(`groups/${g.id}/wishlist?userId=${b.id}&membershipId=${g.members.get(b.id)}`, { cookie: a.cookie });
       assert.equal(attempt.status, 200); assert.equal(attempt.data.owner.membershipId, g.members.get(a.id));
       assert.equal((await assigned(g, a)).status, 409);
+      const target = g.members.get(b.id);
+      assert.equal((await shared(g, a, target)).status, 409);
+      assert.equal((await shared(g, owner, target)).status, 409);
+      assert.equal((await shared(g, null, target)).status, 401);
+      assert.equal((await shared(g, pending, target)).status, 404);
+      assert.equal((await shared(g, outsider, target)).status, 404);
+      const beforeDraw = await api(`groups/${g.id}`, { cookie: owner.cookie });
+      assert.equal(beforeDraw.status, 200);
+      assert(!('drawGuide' in beforeDraw.data));
     });
 
     await t.test('persists separate adult and dependent lists with guardian-only management', async () => {
@@ -123,7 +136,7 @@ test('gift suggestions are isolated by group, identity and the actual private dr
       assert.equal((await api(`groups/${g.id}/wishlist?cursor=not-a-cursor`, { cookie: a.cookie })).status, 400);
     });
 
-    await t.test('only the actual assigned person is readable after draw, including assignments of owned dependents', async () => {
+    await t.test('the private draw endpoint still resolves only the actual assignment, including owned dependents', async () => {
       // Deterministic cycle in this isolated fixture: owner -> a -> b -> child -> foreign -> owner.
       const ordered = [owner.id, a.id, b.id, child.id, foreign.id].map(id => g.members.get(id));
       await transaction(async client => {
@@ -144,6 +157,59 @@ test('gift suggestions are isolated by group, identity and the actual private dr
       assert.equal(notificationAttempts, 0);
     });
 
+    await t.test('group members can browse other participants and dependents without reading draw pairs', async () => {
+      const target = g.members.get(a.id);
+      const page = await shared(g, owner, target);
+      assert.equal(page.status, 200); assert.match(page.cache, /no-store/);
+      assert.deepEqual(Object.keys(page.data).sort(), ['items', 'nextCursor', 'owner']);
+      assert.equal(page.data.owner.membershipId, target); assert.equal(page.data.items.length, 50);
+      assert(!/giver|receiver|match/i.test(JSON.stringify(page.data)));
+      const nextPage = await shared(g, owner, target, page.data.nextCursor);
+      assert.equal(nextPage.status, 200); assert.equal(nextPage.data.items.length, 21);
+      assert.equal(nextPage.data.nextCursor, null);
+      assert.equal(new Set([...page.data.items, ...nextPage.data.items].map(i => i.id)).size, 71);
+      assert.equal((await shared(g, owner, target, 'invalid')).status, 400);
+      const childPage = await shared(g, owner, g.members.get(child.id));
+      assert.equal(childPage.status, 200); assert.equal(childPage.data.owner.dependentId, child.id);
+      assert.deepEqual(childPage.data.items, [childWish]);
+      assert.equal((await shared(g, a, other.members.get(b.id))).status, 404);
+      assert.equal((await shared(g, owner, pendingMemberId)).status, 404);
+      assert.equal((await shared(g, pending, target)).status, 404);
+      assert.equal((await shared(g, outsider, target)).status, 404);
+      assert.equal((await shared(g, null, target)).status, 401);
+      assert.equal((await shared(g, b, target)).status, 200);
+
+      const creatorPage = await api(`groups/${g.id}`, { cookie: owner.cookie });
+      assert.equal(creatorPage.status, 200); assert.equal(creatorPage.data.match, null);
+      assert.deepEqual(creatorPage.data.drawGuide, { status: 'single', starters: [g.members.get(foreign.id), target, g.members.get(b.id)] });
+      assert(!/giver_id|receiver_id|draw_edges/.test(JSON.stringify(creatorPage.data)));
+      const memberPage = await api(`groups/${g.id}`, { cookie: a.cookie });
+      assert.equal(memberPage.status, 200); assert.equal(memberPage.data.match, null);
+      assert(!('drawGuide' in memberPage.data));
+    });
+
+    await t.test('legacy draws with multiple cycles have no starter suggestions and are preserved', async () => {
+      const legacy = await group(owner, [owner, a, b, outsider]);
+      await activate(legacy, child, a); await activate(legacy, foreign, b);
+      const cycles = [[owner.id, a.id, child.id], [b.id, outsider.id, foreign.id]];
+      await transaction(async client => {
+        await client.query('UPDATE as_groups SET drawn_at=now() WHERE id=$1', [legacy.id]);
+        for (const cycle of cycles) {
+          for (const [n, giver] of cycle.entries()) {
+            await client.query('INSERT INTO as_draw_results(group_id,giver_id,receiver_id) VALUES($1,$2,$3)',
+              [legacy.id, legacy.members.get(giver), legacy.members.get(cycle[(n + 1) % cycle.length])]);
+          }
+        }
+      });
+      const getStored = async () => (await query('SELECT * FROM as_draw_results WHERE group_id=$1 ORDER BY giver_id', [legacy.id])).rows;
+      const stored = await getStored();
+      const page = await api(`groups/${legacy.id}`, { cookie: owner.cookie });
+      assert.equal(page.status, 200);
+      assert.deepEqual(page.data.drawGuide, { status: 'multiple' });
+      assert.deepEqual(await getStored(), stored);
+      assert.equal((await shared(legacy, a, legacy.members.get(owner.id))).status, 200);
+    });
+
     await t.test('removing an inactive-before-draw membership cascades its list; account deletion erases personal wishes and preserves other draw pairs', async () => {
       assert.equal((await save(other, a, [item('Outra lista da criança')], [], child)).status, 200);
       const oldMembership = other.members.get(child.id);
@@ -156,6 +222,8 @@ test('gift suggestions are isolated by group, identity and the actual private dr
       assert.equal((await query('SELECT count(*) FROM as_wishlist_items WHERE membership_id=ANY($1::uuid[])', [[g.members.get(a.id), g.members.get(child.id), other.members.get(a.id)]])).rows[0].count, '0');
       assert.equal((await query('SELECT count(*) FROM as_groups WHERE id=$1', [other.id])).rows[0].count, '0');
       assert.equal((await list(g, a)).status, 401);
+      assert.equal((await shared(g, b, g.members.get(a.id))).status, 404);
+      assert.equal((await shared(g, b, g.members.get(child.id))).status, 404);
       const removed = await assigned(g, b); assert([200, 404].includes(removed.status));
       if (removed.status === 200) { assert.equal(removed.data.items.length, 0); assert(!JSON.stringify(removed.data).includes(child.name)); }
       await adminDeleteGroup(admin, g.id, { confirmation: fixture });
