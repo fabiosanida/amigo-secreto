@@ -9,6 +9,26 @@
 @media(prefers-reduced-motion:reduce){.marmelada-stage *,.marmelada-page *{animation:none!important;transition:none!important}.marmelada-confetti>i{top:calc(var(--x) * .72);transform:rotate(var(--turn));opacity:.45}.marmelada-balloon{bottom:13%;transform:rotate(var(--tilt));opacity:.35}.marmelada-balloon:nth-child(2n){bottom:64%}}
 
 .group-exchange-tools { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 24px; }
+.group-marmelada-promo {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid #edc9be;
+  border-radius: 14px;
+  background: #f9e8e1;
+  color: #682f3f;
+}
+.group-marmelada-promo-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #f3d0c4;
+}
+.group-marmelada-promo h3 { margin: 8px 0 5px; font-size: 24px; line-height: 1.15; }
+.group-marmelada-promo p { margin: 0 0 12px; font-size: 13px; line-height: 1.55; }
+.group-marmelada-promo .btn { width: 100%; justify-content: space-between; background: #743748; color: #fff; }
+.group-marmelada-promo .btn:hover { background: #5e293a; }
 .group-marmelada-page .admin-title-row h1 { margin-top: 8px; }
 .marmelada-check-form input[name="token"], [data-marmelada-token-form] select {
   width: 100%;
