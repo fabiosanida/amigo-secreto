@@ -12,6 +12,85 @@ export function renderMarmelada(state) {
   return `<section class="admin-page marmelada-page"><a class="group-back" href="#admin" data-route="admin">${icon('arrow-left', 16)} Administração</a><div class="admin-title-row"><div><span class="eyebrow">O MOMENTO DA VERDADE</span><h1>Marmelada<span>?</span></h1><p>Uma conferência, uma revelação. E um pouco de diversão.</p></div><span class="admin-private-label">${icon('lock', 14)} Acesso exclusivo da sua conta</span></div><div class="marmelada-layout"><section class="panel marmelada-form-card">${group ? `<a class="marmelada-change" href="#admin-marmelada" data-route="admin-marmelada">${icon('arrow-left', 14)} Escolher outro grupo</a><div class="marmelada-current-group"><span>${icon('gift', 22)}</span><div><small>AMIGO SECRETO SELECIONADO</small><h2>${escape(group.name)}</h2><p>${people.length} participantes no sorteio</p></div></div><form data-form="marmelada-check" class="marmelada-check-form"><label class="field" for="marmelada-giver"><span class="marmelada-step">01</span> Quem vai revelar?<select id="marmelada-giver" name="giverId" required><option value="">Escolha uma pessoa</option>${people.map(option).join('')}</select></label><label class="field" for="marmelada-receiver"><span class="marmelada-step">02</span> Quem essa pessoa diz que tirou?<select id="marmelada-receiver" name="receiverId" required><option value="">Escolha o nome anunciado</option>${people.map(option).join('')}</select></label><div class="marmelada-check-note">${icon('info', 17)}<p>Selecione os dois nomes e clique em Conferir. O resultado será apresentado em tela cheia, sem revelar outros pares.</p></div><button type="submit" class="btn btn-primary btn-block marmelada-check-button">${icon('sparkles', 19)} Conferir</button></form>` : `<div class="marmelada-pick-title"><span class="marmelada-step">01</span><h2>Escolha o encontro.</h2><p>São exibidos apenas grupos com sorteio realizado.</p></div><form class="admin-search marmelada-search" data-form="marmelada-search"><label for="marmelada-search">Buscar grupo</label><div><span>${icon('search', 17)}</span><input id="marmelada-search" name="search" type="search" value="${escape(state.marmeladaSearch || '')}" maxlength="100" placeholder="Nome do amigo secreto"><button class="btn btn-primary" type="submit">Buscar</button></div></form><div class="marmelada-group-list">${groups.map(item => `<button class="marmelada-group-option" data-route="admin-marmelada" data-admin-id="${escape(item.id)}"><span class="marmelada-group-icon">${icon('gift', 20)}</span><span><strong>${escape(item.name)}</strong><small>${Number(item.participantCount || 0)} participantes no sorteio</small></span>${icon('arrow-right', 18)}</button>`).join('') || `<div class="admin-empty">${icon('gift', 26)}<p>${state.marmeladaSearch ? 'Nenhum grupo sorteado corresponde à busca.' : 'Os grupos aparecerão aqui depois do primeiro sorteio.'}</p></div>`}</div><div class="admin-pagination"><span>Página ${page} de ${totalPages}</span><div><button class="btn btn-secondary" data-route="${escape(pageRoute(page - 1))}" ${page <= 1 ? 'disabled' : ''}>Anterior</button><button class="btn btn-secondary" data-route="${escape(pageRoute(page + 1))}" ${page >= totalPages ? 'disabled' : ''}>Próxima</button></div></div>`}</section><aside class="marmelada-intro-art"><div class="marmelada-art-sticker">NÃO VALE<br>ENROLAR!</div><span class="marmelada-art-spark marmelada-art-spark-one">✳</span>${jar('berry', 0)}<span class="marmelada-art-spark marmelada-art-spark-two">✦</span><h2>Será que<br>é <em>marmelada?</em></h2><p>Se conferiu, é festa.<br>Se não conferiu… a gente avisa!</p><span class="marmelada-art-footnote">O SORTEIO ORIGINAL CONTINUA INTACTO</span></aside></div></section>`;
 }
 
+export function renderGroupMarmelada({ group, participants } = {}) {
+  if (!group) return '';
+  const groupRoute = `group?${new URLSearchParams({ id: group.id })}`;
+  const options = participants.map(option).join('');
+  return `<section class="marmelada-page group-marmelada-page">
+    <a class="group-back" href="#${groupRoute}" data-route="${groupRoute}">${icon('arrow-left', 16)} Voltar para o grupo</a>
+    <div class="admin-title-row">
+      <div><span class="eyebrow">${escape(group.name)}</span><h1>É Marmelada<span>?</span></h1><p>Confira a revelação na hora da entrega dos presentes.</p></div>
+      <button type="button" class="btn btn-secondary" data-action="marmelada-tv">${icon('monitor', 18)} Tela cheia</button>
+    </div>
+    <div class="marmelada-layout">
+      <section class="panel marmelada-form-card">
+        <form data-form="group-marmelada-check" class="marmelada-check-form">
+          <label class="field" for="group-marmelada-giver"><span class="marmelada-step">01</span> Quem vai revelar?
+            <select id="group-marmelada-giver" name="giverId" required><option value="">Escolha uma pessoa</option>${options}</select>
+          </label>
+          <label class="field" for="group-marmelada-receiver"><span class="marmelada-step">02</span> Quem essa pessoa diz que tirou?
+            <select id="group-marmelada-receiver" name="receiverId" required><option value="">Escolha o nome anunciado</option>${options}</select>
+          </label>
+          <label class="field" for="group-marmelada-token"><span class="marmelada-step">03</span> Token da pessoa
+            <input id="group-marmelada-token" name="token" type="password" inputmode="numeric" maxlength="8" pattern="[0-9]{8}"
+              autocomplete="off" required disabled aria-describedby="group-marmelada-help">
+          </label>
+          <div class="marmelada-check-note" id="group-marmelada-help">${icon('info', 17)}
+            <p>Peça a quem vai revelar para abrir <strong>Meu token da troca</strong> na própria conta e dizer o código de oito dígitos. Cada token vale para uma conferência.</p>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block marmelada-check-button" disabled>${icon('sparkles', 19)} Conferir</button>
+        </form>
+      </section>
+      <aside class="marmelada-intro-art">${jar('berry')}<h2>Será que<br>é <em>marmelada?</em></h2><p>A tela mostra o veredito<br>sobre o nome anunciado.</p></aside>
+    </div>
+  </section>`;
+}
+
+export function syncGroupMarmeladaForm(form) {
+  const { giverId, receiverId, token } = form.elements;
+  const busy = form.getAttribute('aria-busy') === 'true';
+  giverId.disabled = busy;
+  receiverId.disabled = busy;
+  token.disabled = busy || !giverId.value || !receiverId.value;
+  form.querySelector('[type="submit"]').disabled = token.disabled || !/^\d{8}$/.test(token.value);
+}
+
+export function setupGroupMarmeladaForm(form) {
+  if (!form) return;
+  for (const select of [form.elements.giverId, form.elements.receiverId]) {
+    select.addEventListener('change', () => {
+      form.elements.token.value = '';
+      form.querySelector('.form-error')?.remove();
+      syncGroupMarmeladaForm(form);
+    });
+  }
+  form.elements.token.addEventListener('input', () => syncGroupMarmeladaForm(form));
+  syncGroupMarmeladaForm(form);
+}
+
+export function ownMarmeladaParticipants(state) {
+  const userId = state.user?.id;
+  if (!userId || !state.drawn || state.viewAs) return [];
+  return (state.participants || []).filter(person => person.status === 'accepted' && !person.isRemoved
+    && (person.userId === userId || (person.isDependent && person.guardianId === userId)));
+}
+
+export function renderMarmeladaTokenDialog(people) {
+  return `<form class="account-tool-panel" data-marmelada-token-form>
+    <span class="auth-form-symbol">${icon('lock', 23)}</span>
+    <h2 id="marmelada-token-title">Meu token da troca</h2>
+    <p>Gere o token quando você for revelar seu amigo secreto. Diga o código a quem estiver conduzindo a troca. Ele vale por 15 minutos ou até a primeira conferência.</p>
+    ${people.length > 1 ? `<label class="field" for="marmelada-token-person">Token para
+      <select id="marmelada-token-person" name="membershipId" required>${people.map(option).join('')}</select>
+    </label>` : `<input type="hidden" name="membershipId" value="${escape(people[0].id)}">`}
+    <output class="marmelada-token-value" data-marmelada-token-value aria-live="polite" hidden></output>
+    <div class="account-tool-actions">
+      <button type="button" class="btn btn-secondary" data-action="close-dialog">Fechar</button>
+      <button type="submit" class="btn btn-primary">Gerar token</button>
+    </div>
+  </form>`;
+}
+
 export function renderMarmeladaResult(result) {
   const correct = result.matches === true;
   const confetti = Array.from({ length: 44 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--delay:${(i % 9) * -.6}s;--duration:${4 + i % 5}s;--turn:${i % 2 ? 125 : -75}deg;--color:${['#f5cd62', '#ed7d61', '#a7e6a6', '#fff8d5', '#63d9bb'][i % 5]}" aria-hidden="true"></i>`).join('');

@@ -7,7 +7,7 @@ import { renderGroups, GROUP_ROUTES } from './groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from './dependents.js';
 import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem, setupWishlistFields, showWishlistDiscard } from './wishlist.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from './admin.js';
-import { showMarmeladaResult } from './marmelada.js';
+import { ownMarmeladaParticipants, renderMarmeladaTokenDialog, setupGroupMarmeladaForm, showMarmeladaResult, syncGroupMarmeladaForm } from './marmelada.js';
 import { cancelPasskey, renderPasskeyOffer, renderViewAsBanner, renderViewAsPicker, renderViewAsResults, supportsPasskeys, usePasskey } from './account-tools.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
 
@@ -26,7 +26,7 @@ const state = {
   dependents: [], ownDependents: [], dependentResults: [], dependentsReturnGroupId: '', dependentBusyId: '', dependentGroupError: '',
   dependentsNextCursor: null, ownDependentsNextCursor: null, dependentsLoadingMore: false, groupDependentsLoadingMore: false,
   wishlist: null, recipientWishlist: null, drawGuide: null,
-  marmeladaData: null, marmeladaSearch: '', viewAs: null,
+  marmeladaData: null, marmeladaSearch: '', groupMarmelada: null, viewAs: null,
   adminOverview: null, adminData: null, adminTab: 'groups', adminSearch: '', adminCreatedPage: 1, adminParticipatingPage: 1,
   role: 'member', organizerEmail: '', drawn: false, revealed: false, match: null,
   invitation: null, inviteToken: storage.get(INVITE_KEY) || '',
@@ -34,8 +34,8 @@ const state = {
   invitationError: '', invitationErrorCode: '', returnTo: '', challenge: storedChallenge, pendingUser: null,
   authMode: storedChallenge?.purpose === 'recover' ? 'recover' : storedChallenge ? 'register' : 'login', authEmail: storedChallenge?.email || '', accountCheck: null, resetToken: '', resendAt: Number(storedChallenge?.resendAt) || 0, requestPayload: null,
 };
-const groupRoutes = new Set(['group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal', ...WISHLIST_ROUTES]);
-const viewAsRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES]);
+const groupRoutes = new Set(['group', 'group-member', 'group-marmelada', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal', ...WISHLIST_ROUTES]);
+const viewAsRoutes = new Set([...GROUP_ROUTES.filter(screen => screen !== 'group-marmelada'), ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES]);
 const organizerRoutes = new Set(['invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn']);
 const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
 const signedRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
@@ -43,7 +43,7 @@ let route = 'welcome', params = new URLSearchParams(), version = 0, toastTimer;
 let busyDraw = false, sessionLoaded = false, passkeyLoginRunning = false, viewAsSearchVersion = 0;
 let pendingMagicVerification = null, recipientWishlistRequest = 0;
 const pendingActions = new Set();
-const titles = { 'gift-ideas': 'Sugestões do grupo', wishlist: 'Minhas sugestões', dependents: 'Meus dependentes', 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
+const titles = { 'group-marmelada': 'É Marmelada?', 'gift-ideas': 'Sugestões do grupo', wishlist: 'Minhas sugestões', dependents: 'Meus dependentes', 'admin-marmelada': 'Marmelada?', admin: 'Administração', 'admin-group': 'Detalhes do grupo', 'admin-user': 'Detalhes da pessoa', welcome: 'Gente querida. Boas surpresas.', register: 'Criar conta', login: 'Entrar', 'recover-password': 'Recuperar senha', 'reset-password': 'Nova senha', 'password-ready': 'Senha atualizada', verify: 'Confirmar e-mail', 'verify-error': 'Conferir código', 'verify-expired': 'Novo código', 'account-ready': 'Conta confirmada', dashboard: 'Meus grupos', 'dashboard-empty': 'Meus grupos', 'create-group': 'Criar grupo', group: 'Meu grupo', 'group-member': 'Meu grupo', invite: 'Convidar pessoas', 'invites-sent': 'Convites enviados', 'draw-confirm': 'Confirmar sorteio', 'draw-running': 'Realizando sorteio', drawn: 'Sorteio concluído', reveal: 'Meu amigo secreto', invitation: 'Seu convite', 'invitation-new': 'Seu convite', 'invitation-accepted': 'Participação confirmada', 'invitation-closed': 'Convite encerrado', 'invitation-expired': 'Convite indisponível' };
 
 class ApiError extends Error {
   constructor(code, message, status, payload) { super(message); this.code = code; this.status = status; this.payload = payload; }
@@ -129,6 +129,7 @@ function render() {
   setupOTP(document.querySelector('#app'));
   setupInviteFields(document.querySelector('#app'));
   setupGroupFields(document.querySelector('#app'));
+  if (route === 'group-marmelada') setupGroupMarmeladaForm(document.querySelector('[data-form="group-marmelada-check"]'));
   if (route === 'wishlist') setupWishlistFields(document.querySelector('#app'), state.wishlist);
   if (['register', 'login', 'recover-password'].includes(route)) {
     const user = currentUser();
@@ -198,6 +199,8 @@ function clearPrivateState() {
   clearRosterDialogs();
   clearWishlists();
   clearAccountTools();
+  document.querySelector('#marmelada-token-dialog')?.close();
+  state.groupMarmelada = null;
   if (!state.user) state.viewAs = null;
   state.dependents = []; state.ownDependents = []; state.dependentsReturnGroupId = ''; state.dependentBusyId = ''; state.dependentGroupError = '';
   state.dependentsNextCursor = null; state.ownDependentsNextCursor = null; state.dependentsLoadingMore = false; state.groupDependentsLoadingMore = false;
@@ -421,7 +424,11 @@ async function navigate(next, options = {}) {
   if (next === 'reset-password' && !state.resetToken) next = 'recover-password';
   if (['verify', 'verify-error'].includes(next) && state.challenge?.expiresAt && Date.now() >= state.challenge.expiresAt) next = 'verify-expired';
   if (next === 'welcome' && state.user) next = 'dashboard';
+  if (route === 'group-marmelada' && next !== route && document.fullscreenElement === document.documentElement && document.fullscreenElement) {
+    void document.exitFullscreen().catch(() => {});
+  }
   route = next; params = query;
+  state.groupMarmelada = null;
   const navigation = ++version;
   state.invitationError = ''; state.invitationErrorCode = '';
   const destination = href(route, params);
@@ -477,6 +484,10 @@ async function navigate(next, options = {}) {
       if (navigation !== version) return;
       rememberDashboard(result);
       state.group = null; state.ownDependents = []; state.participants = []; state.match = null; state.revealed = false; state.dependentResults = [];
+    } else if (route === 'group-marmelada') {
+      const data = await api(`/groups/${segment(params.get('id'))}/marmelada`);
+      if (navigation !== version) return;
+      state.groupMarmelada = data;
     } else if (groupRoutes.has(route) || (route === 'invitation-accepted' && params.get('id'))) {
       const data = await loadGroup(params.get('id'));
       if (navigation !== version) return;
@@ -540,6 +551,7 @@ function lockForm(form, locked) {
   form.setAttribute('aria-busy', String(locked));
   form.querySelectorAll('button[type="submit"]').forEach(button => { button.disabled = locked; });
   setInviteFieldsBusy(form, locked);
+  if (form.dataset.form === 'group-marmelada-check') syncGroupMarmeladaForm(form);
   if (['register', 'login', 'recover-password', 'reset-password', 'verify', 'create-dependent'].includes(form.dataset.form)) form.querySelectorAll('input').forEach(input => { input.disabled = locked; });
   if (form.dataset.form === 'register') updateEmailFeedback(form);
 }
@@ -690,6 +702,20 @@ async function submit(event) {
         if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); return; }
         throw error;
       }
+    } else if (type === 'group-marmelada-check') {
+      if (route !== 'group-marmelada' || state.viewAs || !state.groupMarmelada?.group) return;
+      const { group, participants } = state.groupMarmelada, navigation = version, userId = state.user?.id;
+      const giver = participants.find(person => person.id === value('giverId'));
+      const receiver = participants.find(person => person.id === value('receiverId'));
+      const token = value('token');
+      form.elements.token.value = '';
+      if (!giver || !receiver) return;
+      form.querySelector('.form-error')?.remove();
+      const result = await post(`/groups/${segment(group.id)}/marmelada/check`, { giverId: giver.id, receiverId: receiver.id, token });
+      if (navigation !== version || userId !== state.user?.id || state.viewAs) return;
+      if (typeof result.matches !== 'boolean') throw new ApiError('INVALID_RESPONSE', 'Não foi possível conferir este resultado.');
+      form.reset();
+      showMarmeladaResult({ ...result, group, giver, receiver });
     } else if (type === 'marmelada-search') {
       if (!state.user?.isAdmin) return;
       await navigate(`admin-marmelada?${new URLSearchParams({ search: value('search'), page: '1' })}`);
@@ -1068,8 +1094,59 @@ async function logout(keepInvitation = false) {
   state.invitation = null; state.authEmail = '';
   await navigate(keepInvitation ? 'invitation' : 'welcome', keepInvitation ? { token: invite } : {});
 }
+function showOwnMarmeladaToken() {
+  const people = ownMarmeladaParticipants(viewState());
+  const groupId = state.group?.id, userId = state.user?.id, navigation = version;
+  const dialog = document.querySelector('#marmelada-token-dialog');
+  if (!people.length || !groupId || !dialog || dialog.open) return;
+  dialog.innerHTML = renderMarmeladaTokenDialog(people);
+  const form = dialog.querySelector('form');
+  const choice = form.elements.membershipId, output = form.querySelector('[data-marmelada-token-value]');
+  const button = form.querySelector('[type="submit"]');
+  const current = () => dialog.open && form.isConnected && !state.viewAs && state.user?.id === userId && state.group?.id === groupId && navigation === version;
+  const clear = () => { output.textContent = ''; output.hidden = true; button.textContent = 'Gerar token'; };
+  choice.addEventListener('change', clear);
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!current() || form.getAttribute('aria-busy') === 'true') return;
+    const membershipId = choice.value;
+    if (!people.some(person => person.id === membershipId)) return;
+    form.querySelector('.form-error')?.remove();
+    clear();
+    form.setAttribute('aria-busy', 'true');
+    choice.disabled = true; button.disabled = true;
+    try {
+      const result = await post(`/groups/${segment(groupId)}/marmelada/token`, { membershipId });
+      if (!current()) return;
+      if (!/^\d{8}$/.test(result.token)) throw new ApiError('INVALID_RESPONSE', 'Não foi possível exibir o token.');
+      output.textContent = `${result.token.slice(0, 4)} ${result.token.slice(4)}`;
+      output.hidden = false;
+      button.textContent = 'Gerar outro token';
+    } catch (error) {
+      if (!current()) return;
+      if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); }
+      else formError(form, errorMessage(error));
+    } finally {
+      if (current()) { form.removeAttribute('aria-busy'); choice.disabled = false; button.disabled = false; }
+    }
+  });
+  dialog.addEventListener('close', () => { if (!dialog.open) dialog.replaceChildren(); }, { once: true });
+  dialog.showModal();
+}
+
+async function toggleMarmeladaTV() {
+  if (route !== 'group-marmelada' || state.viewAs) return;
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+    else throw new Error();
+  } catch { toast('A tela cheia não está disponível neste navegador. Você pode apresentar a janela.'); }
+}
+
 async function action(name, target) {
   switch (name) {
+    case 'my-marmelada-token': showOwnMarmeladaToken(); break;
+    case 'marmelada-tv': await toggleMarmeladaTV(); break;
     case 'view-as': await showViewAsPicker(); break;
     case 'view-as-page': {
       const dialog = target.closest('dialog');
@@ -1256,7 +1333,7 @@ async function action(name, target) {
     }
   }
 }
-const handledActions = new Set(['view-as', 'view-as-page', 'view-as-person', 'exit-view-as', 'login-passkey', 'register-passkey', 'remove-participant', 'add-group-dependent', 'dependents-more', 'group-dependents-more', 'edit-group-date', 'edit-group-budget', 'edit-group-location', 'wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-participant', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
+const handledActions = new Set(['my-marmelada-token', 'marmelada-tv', 'view-as', 'view-as-page', 'view-as-person', 'exit-view-as', 'login-passkey', 'register-passkey', 'remove-participant', 'add-group-dependent', 'dependents-more', 'group-dependents-more', 'edit-group-date', 'edit-group-budget', 'edit-group-location', 'wishlist-add', 'wishlist-remove', 'wishlist-more', 'wishlist-recipient', 'wishlist-participant', 'wishlist-recipient-more', 'help', 'delete-group', 'admin-delete-group', 'admin-delete-user', 'refresh-admin', 'close-dialog', 'toggle-password', 'use-other-email', 'retry-route', 'profile', 'logout', 'switch-account', 'register-invited', 'login-invited', 'resend-code', 'accept-invite', 'accept-dashboard-invite', 'run-draw', 'toggle-dependent', 'reveal', 'hide-result', 'resend-invite', 'retry-notifications', 'refresh-group']);
 document.addEventListener('click', async event => {
   const skip = event.target.closest('.skip-link');
   if (skip) { event.preventDefault(); const main = document.querySelector('#main'); main?.setAttribute('tabindex', '-1'); main?.focus(); main?.scrollIntoView(); return; }

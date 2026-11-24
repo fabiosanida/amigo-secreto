@@ -1,8 +1,9 @@
 import { icon, brand, avatar } from './ui.js';
 import { renderGroupDependents, renderDependentResults } from './dependents.js';
 import { renderWishlistCard } from './wishlist.js';
+import { ownMarmeladaParticipants, renderGroupMarmelada } from './marmelada.js';
 
-export const GROUP_ROUTES = ['dashboard', 'dashboard-empty', 'create-group', 'group', 'group-member', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal'];
+export const GROUP_ROUTES = ['dashboard', 'dashboard-empty', 'create-group', 'group', 'group-member', 'group-marmelada', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal'];
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const currency = value => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -130,6 +131,17 @@ function renderEventStrip(state) {
   </div>`;
 }
 
+function renderMarmeladaTools(state) {
+  if (!state.production || !state.drawn || !state.user?.id || state.viewAs) return '';
+  const organizer = state.group?.organizerId === state.user.id;
+  const hasToken = ownMarmeladaParticipants(state).length > 0;
+  if (!organizer && !hasToken) return '';
+  return `<div class="group-exchange-tools">
+    ${organizer ? `<button type="button" class="btn btn-primary" data-route="group-marmelada">${icon('sparkles', 17)} É Marmelada?</button>` : ''}
+    ${hasToken ? `<button type="button" class="btn btn-secondary" data-action="my-marmelada-token">${icon('lock', 17)} Meu token da troca</button>` : ''}
+  </div>`;
+}
+
 function groupPage(state) {
   const people = state.participants || [], confirmed = accepted(state), waiting = pending(state), failed = people.filter(p => p.status === 'failed').length;
   const isMember = state.role === 'member';
@@ -140,6 +152,7 @@ function groupPage(state) {
   return `<section class="group-detail-page">${back('dashboard', 'Meus grupos')}<div class="group-detail-title"><div><span class="eyebrow">GENTE QUERIDA, PRESENTE CERTO</span><h1>${escape(state.group?.name)}</h1><p>${escape(state.group?.description || 'Um encontro para criar novas memórias.')}</p></div><span class="pill ${state.drawn ? 'pill-green' : 'pill-orange'}">${icon(state.drawn ? 'check-circle' : 'clock', 14)} ${state.drawn ? 'Sorteio realizado' : 'Aguardando sorteio'}</span></div>
     ${renderEventStrip(state)}
     ${actionCards ? `<div class="group-action-grid">${actionCards}</div>` : ''}
+    ${renderMarmeladaTools(state)}
     ${state.production && !isMember && state.group?.notificationFailures ? `<div class="inline-notice" role="status">${icon('mail', 20)}<div><strong>Alguns avisos por e-mail não foram enviados.</strong><p>${state.drawn ? 'O sorteio está salvo e os resultados já podem ser consultados na conta.' : 'Seu grupo está salvo. Você pode acompanhar os envios e tentar novamente por aqui.'}</p><button class="btn btn-secondary" data-action="retry-notifications">Tentar enviar novamente ${icon('refresh', 16)}</button></div></div>` : ''}
     <div class="group-detail-grid"><div class="group-roster-column"><div class="group-participants-panel panel"><div class="group-participants-heading"><div><h2>A turma <span>${people.length}</span></h2><p>Quem vai fazer parte dessa história.</p></div>${!state.drawn && !isMember ? `<div class="group-participant-tools"><button class="btn btn-secondary group-invite-button" data-route="invite">${icon('mail', 17)} Convidar pessoas</button>${state.production && state.user?.id && state.group?.organizerId === state.user.id ? `<button type="button" class="btn btn-secondary group-invite-button" data-action="add-group-dependent">${icon('plus', 17)} Adicionar dependente</button>` : ''}</div>` : ''}</div><div class="group-table-tabs"><span class="group-active-tab">${icon('users', 17)} Participantes</span>${state.production ? `<button type="button" class="group-text-button" data-action="refresh-group">${icon('refresh', 15)} Atualizar lista</button>` : !isMember ? `<a href="#email-invite" data-route="email-invite">${icon('mail', 16)} Prévia do convite ${icon('arrow-right', 14)}</a>` : ''}</div><div class="group-table-wrap"><table class="group-participants-table"><thead><tr><th>PARTICIPANTE</th><th>STATUS DO CONVITE</th><th><span class="group-sr-only">Ações</span></th></tr></thead><tbody>${people.map((p, i) => participantRow(p, i, state)).join('')}</tbody></table>${people.length === 0 ? '<div class="group-no-participants">A turma está se formando. Envie o primeiro convite!</div>' : ''}</div><div class="group-table-footnote">${icon('info', 14)} A abertura do e-mail é estimada e não confirma a leitura.</div></div>${renderGroupDependents(state)}</div>
     <aside class="group-sidebar">${isMember ? memberSidebar : `<div class="panel group-next-card"><span class="eyebrow">${state.drawn ? 'SURPRESA A CAMINHO' : 'TUDO NO SEU TEMPO'}</span><h2>${state.drawn ? 'Agora é com vocês.' : 'Quase na hora<br> da surpresa.'}</h2><p>${state.drawn ? 'O sorteio está pronto. Prepare um presente com a cara de quem você tirou.' : 'A turma está se formando. Acompanhe as confirmações por aqui.'}</p><div class="group-confirm-count"><strong>${confirmed.length}</strong><span>de ${people.length} pessoas<br> confirmadas</span><div class="group-progress-ring" style="--group-progress:${people.length ? Math.round(confirmed.length / people.length * 100) : 0}%">${icon('users', 20)}</div></div><div class="group-progress-bar"><span style="width:${people.length ? Math.round(confirmed.length / people.length * 100) : 0}%"></span></div><div class="group-side-facts"><div><span>${icon('check-circle', 15)} Participando</span><strong>${confirmed.length}</strong></div><div><span>${icon('clock', 15)} Aguardando resposta</span><strong>${waiting.length - failed}</strong></div>${failed ? `<div class="group-failed-fact"><span>${icon('alert', 15)} Falha no envio</span><strong>${failed}</strong></div>` : ''}</div><button class="btn btn-primary" data-route="${state.drawn ? 'reveal' : 'draw-confirm'}">${icon(state.drawn ? 'gift' : 'sparkles', 17)} ${state.drawn ? 'Ver meu amigo secreto' : 'Fazer o sorteio'}</button><small>${state.drawn ? 'Consulte seu resultado na sua conta.' : 'O sorteio inclui apenas quem confirmou.'}</small></div>`}<div class="group-privacy-note">${icon('lock', 20)}<div><strong>O segredo fica entre vocês.</strong><p>Os resultados não aparecem na lista de participantes.</p></div></div></aside></div>${state.production && state.role === 'organizer' ? `<div class="group-delete-area"><div><strong>Encerrar este encontro</strong><p>Apague o grupo e seus dados quando não precisar mais deles.</p></div><button class="btn btn-danger-outline" data-action="delete-group">${icon('x', 17)} Apagar amigo secreto</button></div>` : ''}</section>`;
@@ -184,6 +197,7 @@ export function renderGroups(route, state) {
     case 'dashboard-empty': return dashboard(state, true);
     case 'create-group': return createGroup(state);
     case 'group': return groupPage(state);
+    case 'group-marmelada': return renderGroupMarmelada(state.groupMarmelada || {});
     case 'group-member': return groupPage({ ...state, role: 'member' });
     case 'invite': return invitePage(state);
     case 'invites-sent': return invitesSent(state);

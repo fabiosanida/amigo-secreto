@@ -10,7 +10,8 @@ import { requireAdmin } from '../lib/admin-access.js';
 import { viewAsUser } from '../lib/view-as.js';
 import { beginPasskeyLogin, beginPasskeyRegistration, finishPasskeyLogin, finishPasskeyRegistration } from '../lib/passkeys.js';
 import { adminDeleteGroup, adminDeleteUser, adminGroupDeletePreview, adminUserDeletePreview } from '../lib/admin-delete.js';
-import { checkMarmelada, marmeladaGroup, marmeladaGroups } from '../lib/admin-marmelada.js';
+import { checkMarmelada, loadMarmeladaGroup, marmeladaGroup, marmeladaGroups } from '../lib/admin-marmelada.js';
+import { checkGroupMarmelada, issueMarmeladaToken } from '../lib/group-marmelada.js';
 
 const MAX_BODY = 400000;
 export function verifyCron(req) {
@@ -63,6 +64,11 @@ async function accountRequest(user, parts, method, search, body, reply, { delega
   if (parts[0] === 'invitations' && parts[2] === 'accept' && parts.length === 3 && method === 'POST') return reply(200, await acceptInvitation(user, parts[1]));
   if (parts[0] === 'groups') {
     const id = parts[1];
+    if (!delegated && parts[2] === 'marmelada') {
+      if (parts.length === 3 && method === 'GET') return reply(200, await loadMarmeladaGroup(id, user.id));
+      if (parts.length === 4 && parts[3] === 'token' && method === 'POST') return reply(201, await issueMarmeladaToken(user, id, body));
+      if (parts.length === 4 && parts[3] === 'check' && method === 'POST') return reply(200, await checkGroupMarmelada(user, id, body));
+    }
     if (parts.length === 3 && parts[2] === 'wishlist') {
       if (method === 'GET') return reply(200, await listWishlist(user, id, { dependentId: search.get('dependentId'), cursor: search.get('cursor') }));
       if (method === 'POST') return reply(200, await saveWishlist(user, id, body));
