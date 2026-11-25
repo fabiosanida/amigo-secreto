@@ -1097,6 +1097,7 @@ async function logout(keepInvitation = false) {
   await navigate(keepInvitation ? 'invitation' : 'welcome', keepInvitation ? { token: invite } : {});
 }
 async function loadOwnMarmeladaTokens(output) {
+  if (state.viewAs) return;
   const people = ownMarmeladaParticipants(viewState());
   const groupId = state.group?.id, userId = state.user?.id, navigation = version;
   if (!people.length || !groupId || output.getAttribute('aria-busy') === 'true') return;
@@ -1129,13 +1130,14 @@ async function loadOwnMarmeladaTokens(output) {
 async function showOwnMarmeladaTokens(target) {
   const output = target.closest('[data-marmelada-tokens]');
   if (output) return loadOwnMarmeladaTokens(output);
-  if (!ownMarmeladaParticipants(viewState()).some(person => person.isDependent)) return;
+  const people = ownMarmeladaParticipants(viewState());
+  if (!people.some(person => person.isDependent)) return;
   const dialog = document.querySelector('#marmelada-token-dialog');
   if (!dialog || dialog.open) return;
-  dialog.innerHTML = renderMarmeladaTokenDialog();
+  dialog.innerHTML = renderMarmeladaTokenDialog(state.viewAs ? people : undefined);
   dialog.addEventListener('close', () => { if (!dialog.open) dialog.replaceChildren(); }, { once: true });
   dialog.showModal();
-  await loadOwnMarmeladaTokens(dialog.querySelector('[data-marmelada-tokens="list"]'));
+  if (!state.viewAs) await loadOwnMarmeladaTokens(dialog.querySelector('[data-marmelada-tokens="list"]'));
 }
 
 async function toggleMarmeladaTV() {

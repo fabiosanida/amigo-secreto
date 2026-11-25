@@ -140,7 +140,9 @@ function renderOwnMarmeladaToken(state) {
   }
   return `<div class="group-token-card">
     <span class="group-token-caption">${icon('lock', 14)} Meu token da troca</span>
-    <div data-marmelada-tokens="inline" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>
+    ${state.viewAs
+      ? '<span class="marmelada-token-status">Código visível na própria conta</span>'
+      : '<div data-marmelada-tokens="inline" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>'}
   </div>`;
 }
 

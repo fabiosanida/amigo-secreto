@@ -101,7 +101,7 @@ export function setupGroupMarmeladaForm(form) {
 
 export function ownMarmeladaParticipants(state) {
   const userId = state.user?.id;
-  if (!userId || !state.drawn || state.viewAs) return [];
+  if (!userId || !state.drawn) return [];
   return (state.participants || []).filter(person => person.status === 'accepted' && !person.isRemoved
     && (person.userId === userId || (person.isDependent && person.guardianId === userId)));
 }
@@ -119,17 +119,18 @@ export function renderMarmeladaTokenList(people, tokens) {
     return `<li>
       <span aria-hidden="true">${avatar(name, person.color ?? index, '', person.avatar)}</span>
       <span class="marmelada-token-person"><strong>${escape(name)}</strong><small>${person.isDependent ? 'Dependente' : 'Titular'}</small></span>
-      ${renderMarmeladaTokenValue(tokens.get(person.id))}
+      ${tokens ? renderMarmeladaTokenValue(tokens.get(person.id)) : '<span class="marmelada-token-status">Privado</span>'}
     </li>`;
   }).join('')}</ul>`;
 }
 
-export function renderMarmeladaTokenDialog() {
+export function renderMarmeladaTokenDialog(previewPeople) {
   return `<section class="account-tool-panel">
     <span class="auth-form-symbol">${icon('lock', 23)}</span>
     <h2 id="marmelada-token-title">Meus tokens da troca</h2>
-    <p>Cada código vale para uma conferência. Na hora da troca, informe o token da pessoa anunciada como destinatária do presente.</p>
-    <div data-marmelada-tokens="list" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>
+    ${previewPeople
+      ? `<p>Os códigos do titular e dos dependentes ficam visíveis na conta do titular.</p>${renderMarmeladaTokenList(previewPeople)}`
+      : '<p>Cada código vale para uma conferência. Na hora da troca, informe o token da pessoa anunciada como destinatária do presente.</p><div data-marmelada-tokens="list" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>'}
     <div class="account-tool-actions">
       <button type="button" class="btn btn-secondary" data-action="close-dialog">Fechar</button>
     </div>
