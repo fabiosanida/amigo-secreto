@@ -83,12 +83,9 @@ test('the group header shows a personal token or opens a single list for the hol
   assert.match(family, /class="group-detail-status"[\s\S]*Sorteio realizado[\s\S]*Ver tokens da troca/);
   assert.doesNotMatch(family, /data-marmelada-tokens="inline"/);
   const delegatedSolo = renderGroups('group', { ...state, viewAs: {} });
-  assert.match(delegatedSolo, /Sorteio realizado[\s\S]*Meu token da troca[\s\S]*Código visível na própria conta/);
-  assert.doesNotMatch(delegatedSolo, /data-marmelada-tokens="inline"/);
+  assert.match(delegatedSolo, /Sorteio realizado[\s\S]*Meu token da troca[\s\S]*data-marmelada-tokens="inline"/);
   assert.match(renderGroups('group', { ...state, viewAs: {}, participants: [child, holder] }), /Ver tokens da troca/);
-  const delegatedList = renderMarmeladaTokenDialog([child, holder]);
-  assert.match(delegatedList, /Ana Bezerra[\s\S]*Privado[\s\S]*Bia Bezerra[\s\S]*Privado/);
-  assert.doesNotMatch(delegatedList, /data-marmelada-tokens|marmelada-token-code/);
+  assert.match(renderMarmeladaTokenDialog(), /data-marmelada-tokens="list"/);
   const html = renderMarmeladaTokenList([child, holder], new Map([[holder.id, { token: '01234567' }], [child.id, { used: true }]]));
   assert.match(html, /Ana Bezerra[\s\S]*0123 4567[\s\S]*Bia Bezerra[\s\S]*Token já usado/);
 });

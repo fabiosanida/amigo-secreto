@@ -119,18 +119,17 @@ export function renderMarmeladaTokenList(people, tokens) {
     return `<li>
       <span aria-hidden="true">${avatar(name, person.color ?? index, '', person.avatar)}</span>
       <span class="marmelada-token-person"><strong>${escape(name)}</strong><small>${person.isDependent ? 'Dependente' : 'Titular'}</small></span>
-      ${tokens ? renderMarmeladaTokenValue(tokens.get(person.id)) : '<span class="marmelada-token-status">Privado</span>'}
+      ${renderMarmeladaTokenValue(tokens.get(person.id))}
     </li>`;
   }).join('')}</ul>`;
 }
 
-export function renderMarmeladaTokenDialog(previewPeople) {
+export function renderMarmeladaTokenDialog() {
   return `<section class="account-tool-panel">
     <span class="auth-form-symbol">${icon('lock', 23)}</span>
     <h2 id="marmelada-token-title">Meus tokens da troca</h2>
-    ${previewPeople
-      ? `<p>Os códigos do titular e dos dependentes ficam visíveis na conta do titular.</p>${renderMarmeladaTokenList(previewPeople)}`
-      : '<p>Cada código vale para uma conferência. Na hora da troca, informe o token da pessoa anunciada como destinatária do presente.</p><div data-marmelada-tokens="list" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>'}
+    <p>Cada código vale para uma conferência. Na hora da troca, informe o token da pessoa anunciada como destinatária do presente.</p>
+    <div data-marmelada-tokens="list" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>
     <div class="account-tool-actions">
       <button type="button" class="btn btn-secondary" data-action="close-dialog">Fechar</button>
     </div>

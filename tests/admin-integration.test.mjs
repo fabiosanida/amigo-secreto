@@ -134,7 +134,15 @@ test('private administration and creator deletion enforce server identity, full 
       const ownToken = await api(`${drawnPath}/marmelada/token`, { cookie: member.cookie, body: { membershipId: receiverId } });
       assert.equal(ownToken.status, 201);
       assert.equal((await api(`${asMember}/${drawnPath}/marmelada/token`, { cookie: admin.cookie, body: { membershipId: receiverId } })).status, 404);
-      assert.equal((await api(`${asMember}/${drawnPath}/marmelada/tokens`, { cookie: admin.cookie, body: { membershipIds: [receiverId] } })).status, 404);
+      const tokensPath = `${asMember}/${drawnPath}/marmelada/tokens`;
+      const readTokens = (membershipIds, cookie = admin.cookie) => api(tokensPath, { cookie, body: { membershipIds } });
+      const delegatedTokens = await readTokens([receiverId]);
+      assert.equal(delegatedTokens.status, 200);
+      assert.match(delegatedTokens.cache, /no-store/);
+      assert.deepEqual(delegatedTokens.data, { tokens: [{ membershipId: receiverId, token: ownToken.data.token }] });
+      assert.equal((await readTokens([receiverId], member.cookie)).status, 403);
+      assert.equal((await readTokens([receiverId, giverId])).status, 404);
+      assert.equal((await readTokens([pending.members[1].id])).status, 404);
       const claim = { giverId, receiverId, token: ownToken.data.token };
       const check = (scope, payload = claim, cookie = admin.cookie) =>
         api(`${scope}/${drawnPath}/marmelada/check`, { cookie, body: payload });
@@ -146,6 +154,7 @@ test('private administration and creator deletion enforce server identity, full 
       assert.equal(verdict.status, 200);
       assert.deepEqual(verdict.data, { matches: true });
       assert.equal((await check(asOwner)).status, 422);
+      assert.deepEqual((await readTokens([receiverId])).data, { tokens: [{ membershipId: receiverId, used: true }] });
       const pendingView = await api(`${asOwner}/groups/${pending.id}`, { cookie: admin.cookie });
       assert.equal(pendingView.status, 200);
       const delivery = (await query('SELECT state,attempts FROM as_outbox WHERE group_id=$1', [pending.id])).rows[0];

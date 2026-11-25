@@ -68,7 +68,7 @@ async function accountRequest(user, parts, method, search, body, reply, { delega
     if (parts.length === 4 && parts[2] === 'marmelada' && method === 'POST') {
       if (parts[3] === 'check') return reply(200, await checkGroupMarmelada(user, id, body));
       if (!delegated && parts[3] === 'token') return reply(201, await issueMarmeladaToken(user, id, body));
-      if (!delegated && parts[3] === 'tokens') return reply(200, await listMarmeladaTokens(user, id, body));
+      if (parts[3] === 'tokens') return reply(200, await listMarmeladaTokens(user, id, body));
     }
     if (parts.length === 3 && parts[2] === 'wishlist') {
       if (method === 'GET') return reply(200, await listWishlist(user, id, { dependentId: search.get('dependentId'), cursor: search.get('cursor') }));
@@ -148,7 +148,9 @@ export default async function handler(req, res) {
             const family = scoped[0];
             // Keep the actual actor and target in the audit, without storing values or invite links.
             console.info('view_as_change', { actorId: user.id, targetId: target.id, family,
-              ...(family === 'groups' && scoped.length > 2 ? { groupId: scoped[1], operation: scoped[2] } : {}) });
+              ...(family === 'groups' && scoped.length > 2
+                ? { groupId: scoped[1], operation: scoped[2] === 'marmelada' ? scoped.slice(2).join('/') : scoped[2] }
+                : {}) });
           }
           return send(res, status, data);
         };
