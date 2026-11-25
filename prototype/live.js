@@ -13,6 +13,7 @@ import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar
 
 const INVITE_KEY = 'amigo-secreto:invitation';
 const CHALLENGE_KEY = 'amigo-secreto:challenge';
+const VIEW_AS_KEY = 'amigo-secreto:view-as';
 const storage = {
   get(key) { try { return sessionStorage.getItem(key); } catch { return null; } },
   set(key, value) { try { value == null ? sessionStorage.removeItem(key) : sessionStorage.setItem(key, value); } catch {} },
@@ -203,7 +204,10 @@ function clearPrivateState() {
   clearAccountTools();
   document.querySelector('#marmelada-token-dialog')?.close();
   state.groupMarmelada = null;
-  if (!state.user) state.viewAs = null;
+  if (!state.user) {
+    state.viewAs = null;
+    storage.set(VIEW_AS_KEY, null);
+  }
   state.dependents = []; state.ownDependents = []; state.dependentsReturnGroupId = ''; state.dependentBusyId = ''; state.dependentGroupError = '';
   state.dependentsNextCursor = null; state.ownDependentsNextCursor = null; state.dependentsLoadingMore = false; state.groupDependentsLoadingMore = false;
   state.drawGuide = null;
@@ -560,6 +564,7 @@ function lockForm(form, locked) {
 async function completeLogin(user, fromLink = false) {
   if (!user?.id) throw new ApiError('INVALID_RESPONSE', 'Não foi possível confirmar sua conta. Tente entrar novamente.');
   if (state.user?.id !== user.id || !user.isAdmin) clearPrivateState();
+  storage.set(VIEW_AS_KEY, null);
   state.user = user; state.viewAs = null; state.pendingUser = null; clearChallenge(); resetSignupAvatar();
   if (state.inviteToken) await navigate('invitation', { token: state.inviteToken, replace: fromLink });
   else { const destination = state.returnTo || (state.authMode === 'register' ? 'account-ready' : 'dashboard'); state.returnTo = ''; await navigate(destination, { replace: fromLink }); }
@@ -641,6 +646,37 @@ async function showViewAsPicker() {
   await loadViewAsPeople(dialog, '1');
 }
 
+function setViewAs(user) {
+  const actor = state.user;
+  clearPrivateState();
+  state.viewAs = { actor, pendingWrites: 0 };
+  state.user = user;
+  storage.set(VIEW_AS_KEY, JSON.stringify({ actorId: actor.id, targetId: user.id }));
+}
+
+async function restoreViewAs() {
+  const stored = storage.get(VIEW_AS_KEY);
+  if (!stored) return false;
+  let selection;
+  try { selection = JSON.parse(stored); } catch {}
+  const actor = state.user, targetId = selection?.targetId;
+  if (actor?.isAdmin && actor.id === selection?.actorId && typeof targetId === 'string' && targetId && targetId !== actor.id) {
+    try {
+      const result = await api(`/admin/view-as/${segment(targetId)}`);
+      if (result.user?.id === targetId) {
+        setViewAs(result.user);
+        return false;
+      }
+    } catch (error) {
+      if (![401, 403, 404].includes(error.status)) throw error;
+      if (error.status === 401) state.user = null;
+      if (error.status === 403) state.user = { ...actor, isAdmin: false };
+    }
+  }
+  storage.set(VIEW_AS_KEY, null);
+  return true;
+}
+
 async function enterViewAs(target, { discardChanges = false } = {}) {
   const dialog = target.closest('dialog');
   const actorId = state.user?.id, navigation = version;
@@ -652,10 +688,7 @@ async function enterViewAs(target, { discardChanges = false } = {}) {
   }
   const result = await api(`/admin/view-as/${segment(id)}`);
   if (!dialog.open || navigation !== version || state.user?.id !== actorId || result.user?.id !== id) return;
-  const actor = state.user;
-  clearPrivateState();
-  state.viewAs = { actor, pendingWrites: 0 };
-  state.user = result.user;
+  setViewAs(result.user);
   await navigate('dashboard', { replace: true });
 }
 
@@ -669,6 +702,7 @@ async function exitViewAs({ discardChanges = false } = {}) {
   }
   state.user = viewAs.actor;
   state.viewAs = null;
+  storage.set(VIEW_AS_KEY, null);
   clearPrivateState();
   await navigate('dashboard', { replace: true });
 }
@@ -1394,7 +1428,15 @@ async function start() {
   document.body.style.paddingBottom = '0';
   document.querySelector('#review-tools')?.remove(); document.querySelector('#screen-picker')?.remove();
   loading();
-  try { const result = await api('/session'); state.user = result.user || null; sessionLoaded = true; const next = parseHash(); await navigate(href(next.route, next.params).slice(1), { replace: true }); }
+  try {
+    const result = await api('/session');
+    state.user = result.user || null;
+    const discardedViewAs = await restoreViewAs();
+    sessionLoaded = true;
+    const next = parseHash();
+    const destination = discardedViewAs ? (state.user ? 'dashboard' : 'login') : href(next.route, next.params).slice(1);
+    await navigate(destination, { replace: true });
+  }
   catch (error) { renderError(error); }
 }
 void start();

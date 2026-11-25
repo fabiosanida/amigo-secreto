@@ -243,6 +243,54 @@ test('reloading after recovery preserves the invitation but requires a new code 
 const administrator = { ...signedInUser, id: 'admin-1', email: 'fabiosanida@gmail.com', isAdmin: true };
 const emptyAdminSummary = { summary: { groups: 0, drawnGroups: 0, users: 0, participants: 0, pendingInvitations: 0 } };
 const emptyAdminList = { groups: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 1 } };
+const viewAsKey = 'amigo-secreto:view-as';
+
+test('reloading restores the selected user before loading the open group and exit clears the selection', async () => {
+  const target = { ...signedInUser, id: randomUUID(), firstName: 'Conta', lastName: 'Selecionada' };
+  const identityPath = `/api/admin/view-as/${target.id}`;
+  const h = harness({ hash: '#dashboard' });
+  h.requests[0].respond({ user: administrator }); await tick();
+  h.requests[1].respond({ groups: [] }); await tick();
+  const entering = h.action('view-as-person', { dataset: { userId: target.id }, closest: () => ({ open: true }) });
+  assert.equal(h.requests[2].path, identityPath);
+  h.requests[2].respond({ user: target }); await tick();
+  assert.equal(h.requests[3].path, `${identityPath}/groups`);
+  h.requests[3].respond({ groups: [] }); await entering;
+  assert.deepEqual(JSON.parse(h.storage.get(viewAsKey)), { actorId: administrator.id, targetId: target.id });
+
+  const reloaded = harness({ hash: '#group?id=group-1', stored: h.storage });
+  reloaded.requests[0].respond({ user: administrator }); await tick();
+  assert.deepEqual(reloaded.requests.map(request => request.path), ['/api/session', identityPath]);
+  reloaded.requests[1].respond({ user: target }); await tick();
+  assert.equal(reloaded.requests[2].path, `${identityPath}/groups/group-1`);
+  reloaded.requests[2].respond({ group: invitedGroup, role: 'member' }); await tick();
+  assert.equal(reloaded.location.hash, '#group?id=group-1');
+  assert.match(reloaded.app.innerHTML, /Editando como <strong>Conta Selecionada/);
+  const leaving = reloaded.action('exit-view-as');
+  assert.equal(reloaded.storage.has(viewAsKey), false);
+  assert.equal(reloaded.requests[3].path, '/api/groups');
+  reloaded.requests[3].respond({ groups: [] }); await leaving;
+  assert.equal(reloaded.state.user.id, administrator.id);
+  assert.doesNotMatch(reloaded.app.innerHTML, /Editando como/);
+});
+
+test('an obsolete view-as selection is cleared without opening the group under the wrong account', async () => {
+  const targetId = randomUUID(), identityPath = `/api/admin/view-as/${targetId}`;
+  const stored = new Map([[viewAsKey, JSON.stringify({ actorId: administrator.id, targetId })]]);
+  for (const [user, denied] of [[signedInUser, null], [administrator, 404], [null, null]]) {
+    const h = harness({ hash: '#group?id=group-1', stored });
+    h.requests[0].respond({ user }); await tick();
+    if (denied) {
+      assert.equal(h.requests[1].path, identityPath);
+      h.requests[1].respond({ error: { code: 'ACCOUNT_NOT_FOUND' } }, denied); await tick();
+    }
+    assert.equal(h.storage.has(viewAsKey), false);
+    assert.equal(h.location.hash, user ? '#dashboard' : '#login');
+    assert.equal(h.state.viewAs, null);
+    assert.deepEqual(h.requests.map(request => request.path), ['/api/session', ...(denied ? [identityPath] : []), ...(user ? ['/api/groups'] : [])]);
+    if (user) h.requests.at(-1).respond({ groups: [] });
+  }
+});
 
 test('private routes never request admin data or expose navigation for a regular account', async () => {
   for (const route of ['admin', 'admin-group?id=private-group', 'admin-user?id=private-user', 'admin-marmelada', 'admin-marmelada?id=private-group']) {
