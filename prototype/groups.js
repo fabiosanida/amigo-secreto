@@ -208,7 +208,7 @@ export function renderGroups(route, state) {
     case 'dashboard-empty': return dashboard(state, true);
     case 'create-group': return createGroup(state);
     case 'group': return groupPage(state);
-    case 'group-marmelada': return renderGroupMarmelada(state.groupMarmelada || {}, { preview: Boolean(state.viewAs) });
+    case 'group-marmelada': return renderGroupMarmelada(state.groupMarmelada || {}, { delegated: Boolean(state.viewAs) });
     case 'group-member': return groupPage({ ...state, role: 'member' });
     case 'invite': return invitePage(state);
     case 'invites-sent': return invitesSent(state);

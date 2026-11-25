@@ -24,7 +24,7 @@ function participantTags(name, people) {
   </label>`).join('')}</div>`;
 }
 
-export function renderGroupMarmelada({ group, participants } = {}, { preview = false } = {}) {
+export function renderGroupMarmelada({ group, participants } = {}, { delegated = false } = {}) {
   if (!group) return '';
   const groupRoute = `group?${new URLSearchParams({ id: group.id })}`;
   const people = participants.map(person => ({ ...person, name: displayName(memberName(person)) }))
@@ -37,7 +37,7 @@ export function renderGroupMarmelada({ group, participants } = {}, { preview = f
     </div>
     <div class="marmelada-layout">
       <section class="panel marmelada-form-card">
-        <form data-form="group-marmelada-check"${preview ? ' data-preview' : ''} class="marmelada-check-form">
+        <form data-form="group-marmelada-check" class="marmelada-check-form">
           <fieldset class="field marmelada-people-field" id="group-marmelada-giver">
             <legend><span class="marmelada-step">01</span> Quem vai revelar?</legend>
             ${participantTags('giverId', people)}
@@ -48,12 +48,12 @@ export function renderGroupMarmelada({ group, participants } = {}, { preview = f
           </fieldset>
           <div class="field">
             <label for="group-marmelada-token"><span class="marmelada-step">03</span> <span data-token-owner>Token da pessoa da etapa 2</span></label>
-            <input id="group-marmelada-token" name="token" type="password" inputmode="numeric" maxlength="8" pattern="[0-9]{8}"
+            <input id="group-marmelada-token" name="token" type="password" inputmode="numeric" pattern="[0-9]{8}"
               autocomplete="off" required disabled aria-describedby="group-marmelada-help">
           </div>
           <div class="marmelada-check-note" id="group-marmelada-help">${icon('info', 17)}
-            ${preview ? '<p><strong>Prévia da organização.</strong> Na hora da troca, quem criou o grupo pode conferir os nomes pela própria conta.</p>' :
-              '<p>Peça à pessoa da etapa 2 o código de oito dígitos que aparece abaixo de <strong>Sorteio realizado</strong> na página do grupo. Cada token vale para uma conferência.</p>'}
+            <p>Peça à pessoa da etapa 2 o código de oito dígitos que aparece abaixo de <strong>Sorteio realizado</strong> na página do grupo.
+              ${delegated ? '<strong>Esta conferência também consome o token.</strong>' : 'Cada token vale para uma conferência.'}</p>
           </div>
           <button type="submit" class="btn btn-primary btn-block marmelada-check-button" disabled>${icon('sparkles', 19)} Conferir</button>
         </form>
@@ -75,7 +75,7 @@ export function syncGroupMarmeladaForm(form) {
   }
   form.querySelector('[data-token-owner]').textContent = receiver
     ? `Token de ${receiver.dataset.personName}` : 'Token da pessoa da etapa 2';
-  token.disabled = form.hasAttribute('data-preview') || busy || !giver || !receiver || giver.value === receiver.value;
+  token.disabled = busy || !giver || !receiver || giver.value === receiver.value;
   form.querySelector('[type="submit"]').disabled = token.disabled || !/^\d{8}$/.test(token.value);
 }
 
@@ -91,7 +91,11 @@ export function setupGroupMarmeladaForm(form) {
     form.querySelector('.form-error')?.remove();
     syncGroupMarmeladaForm(form);
   });
-  form.elements.token.addEventListener('input', () => syncGroupMarmeladaForm(form));
+  form.elements.token.addEventListener('input', ({ target }) => {
+    const digits = target.value.replace(/\D/g, '').slice(0, 8);
+    if (target.value !== digits) target.value = digits;
+    syncGroupMarmeladaForm(form);
+  });
   syncGroupMarmeladaForm(form);
 }
 

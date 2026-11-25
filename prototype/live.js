@@ -705,8 +705,8 @@ async function submit(event) {
         throw error;
       }
     } else if (type === 'group-marmelada-check') {
-      if (route !== 'group-marmelada' || state.viewAs || !state.groupMarmelada?.group) return;
-      const { group, participants } = state.groupMarmelada, navigation = version, userId = state.user?.id;
+      if (route !== 'group-marmelada' || !state.groupMarmelada?.group) return;
+      const { group, participants } = state.groupMarmelada, navigation = version, userId = state.user?.id, viewAs = state.viewAs;
       const giver = participants.find(person => person.id === value('giverId'));
       const receiver = participants.find(person => person.id === value('receiverId'));
       const token = value('token');
@@ -714,7 +714,7 @@ async function submit(event) {
       if (!giver || !receiver) return;
       form.querySelector('.form-error')?.remove();
       const result = await post(`/groups/${segment(group.id)}/marmelada/check`, { giverId: giver.id, receiverId: receiver.id, token });
-      if (navigation !== version || userId !== state.user?.id || state.viewAs) return;
+      if (navigation !== version || userId !== state.user?.id || viewAs !== state.viewAs) return;
       if (typeof result.matches !== 'boolean') throw new ApiError('INVALID_RESPONSE', 'Não foi possível conferir este resultado.');
       form.reset();
       showMarmeladaResult({ ...result, group, giver, receiver });

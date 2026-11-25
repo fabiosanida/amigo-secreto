@@ -65,10 +65,10 @@ async function accountRequest(user, parts, method, search, body, reply, { delega
   if (parts[0] === 'groups') {
     const id = parts[1];
     if (parts.length === 3 && parts[2] === 'marmelada' && method === 'GET') return reply(200, await loadMarmeladaGroup(id, user.id));
-    if (!delegated && parts[2] === 'marmelada') {
-      if (parts.length === 4 && parts[3] === 'token' && method === 'POST') return reply(201, await issueMarmeladaToken(user, id, body));
-      if (parts.length === 4 && parts[3] === 'tokens' && method === 'POST') return reply(200, await listMarmeladaTokens(user, id, body));
-      if (parts.length === 4 && parts[3] === 'check' && method === 'POST') return reply(200, await checkGroupMarmelada(user, id, body));
+    if (parts.length === 4 && parts[2] === 'marmelada' && method === 'POST') {
+      if (parts[3] === 'check') return reply(200, await checkGroupMarmelada(user, id, body));
+      if (!delegated && parts[3] === 'token') return reply(201, await issueMarmeladaToken(user, id, body));
+      if (!delegated && parts[3] === 'tokens') return reply(200, await listMarmeladaTokens(user, id, body));
     }
     if (parts.length === 3 && parts[2] === 'wishlist') {
       if (method === 'GET') return reply(200, await listWishlist(user, id, { dependentId: search.get('dependentId'), cursor: search.get('cursor') }));

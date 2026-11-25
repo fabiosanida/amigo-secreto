@@ -127,9 +127,25 @@ test('private administration and creator deletion enforce server identity, full 
       assert.equal((await api('session', { cookie: member.cookie })).data.user.firstName, 'Nome atualizado');
       await api('profile', { cookie: member.cookie, body: { firstName: member.name, lastName: fixture } });
 
-      for (const restricted of ['auth/logout', 'auth/passkeys/register/options', 'auth/password/reset', 'admin/marmelada/check', `${drawnPath}/marmelada/token`, `${drawnPath}/marmelada/tokens`, `${drawnPath}/marmelada/check`]) {
+      for (const restricted of ['auth/logout', 'auth/passkeys/register/options', 'auth/password/reset', 'admin/marmelada/check']) {
         assert.equal((await api(`${asOwner}/${restricted}`, { cookie: admin.cookie, body: {} })).status, 404);
       }
+      const giverId = drawn.members[0].id, receiverId = drawn.members[1].id;
+      const ownToken = await api(`${drawnPath}/marmelada/token`, { cookie: member.cookie, body: { membershipId: receiverId } });
+      assert.equal(ownToken.status, 201);
+      assert.equal((await api(`${asMember}/${drawnPath}/marmelada/token`, { cookie: admin.cookie, body: { membershipId: receiverId } })).status, 404);
+      assert.equal((await api(`${asMember}/${drawnPath}/marmelada/tokens`, { cookie: admin.cookie, body: { membershipIds: [receiverId] } })).status, 404);
+      const claim = { giverId, receiverId, token: ownToken.data.token };
+      const check = (scope, payload = claim, cookie = admin.cookie) =>
+        api(`${scope}/${drawnPath}/marmelada/check`, { cookie, body: payload });
+      assert.equal((await check(asMember)).status, 404);
+      assert.equal((await check(asOwner, claim, member.cookie)).status, 403);
+      const invalidToken = claim.token === '00000000' ? '00000001' : '00000000';
+      assert.equal((await check(asOwner, { ...claim, token: invalidToken })).status, 422);
+      const verdict = await check(asOwner);
+      assert.equal(verdict.status, 200);
+      assert.deepEqual(verdict.data, { matches: true });
+      assert.equal((await check(asOwner)).status, 422);
       const pendingView = await api(`${asOwner}/groups/${pending.id}`, { cookie: admin.cookie });
       assert.equal(pendingView.status, 200);
       const delivery = (await query('SELECT state,attempts FROM as_outbox WHERE group_id=$1', [pending.id])).rows[0];
