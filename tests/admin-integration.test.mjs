@@ -100,6 +100,11 @@ test('private administration and creator deletion enforce server identity, full 
       assert.equal(participantView.data.match, null);
       assert.equal((await api(`${asOwner}/${drawnPath}/result`, { cookie: admin.cookie })).status, 404);
       assert.equal((await api(`${asOwner}/${drawnPath}/result/wishlist`, { cookie: admin.cookie })).status, 404);
+      const marmeladaPreview = await api(`${asOwner}/${drawnPath}/marmelada`, { cookie: admin.cookie });
+      assert.equal(marmeladaPreview.status, 200);
+      assert.deepEqual(marmeladaPreview.data, (await api(`${drawnPath}/marmelada`, { cookie: owner.cookie })).data);
+      assert.deepEqual(Object.keys(marmeladaPreview.data).sort(), ['group', 'participants']);
+      assert.equal((await api(`${asMember}/${drawnPath}/marmelada`, { cookie: admin.cookie })).status, 404);
       assert.equal((await api(`${asMember}/${drawnPath}/participants/${drawn.members[0].id}/wishlist`, { cookie: admin.cookie })).status, 200);
       assert.equal((await api(`admin/view-as/${outsider.id}/groups/${pending.id}`, { cookie: admin.cookie })).status, 404);
       const date = new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10);

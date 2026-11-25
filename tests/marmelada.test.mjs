@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderAdmin } from '../prototype/admin.js';
-import { renderMarmelada, renderMarmeladaResult, showMarmeladaResult } from '../prototype/marmelada.js';
+import { renderGroups } from '../prototype/groups.js';
+import { renderMarmelada, renderMarmeladaResult, showMarmeladaResult, syncGroupMarmeladaForm } from '../prototype/marmelada.js';
 
 test('Marmelada stays behind the administrative renderer and escapes selectable participant names', () => {
   const data = { group: { id: 'group', name: '<script>secret</script>' }, participants: [{ id: 'giver', name: '<img src=x onerror=alert(1)>' }] };
@@ -9,6 +10,28 @@ test('Marmelada stays behind the administrative renderer and escapes selectable 
   const html = renderMarmelada({ marmeladaData: data });
   assert(!html.includes('<script>')); assert(!html.includes('<img src=x'));
   assert(html.includes('&lt;script&gt;secret&lt;/script&gt;')); assert(html.includes('name="giverId"')); assert(html.includes('name="receiverId"'));
+});
+
+test('the organizer can preview the group card and form without sending a verification', () => {
+  const group = { id: 'group', name: 'Natal', organizerId: 'owner' };
+  const state = { production: true, drawn: true, group, user: { id: 'owner' }, viewAs: {}, role: 'organizer',
+    groupMarmelada: { group, participants: [{ id: 'giver', name: 'Ana' }] } };
+  assert.match(renderGroups('group', state), /data-route="group-marmelada">Conferir/);
+  assert.doesNotMatch(renderGroups('group', { ...state, user: { id: 'member' }, role: 'member' }), /group-marmelada-promo/);
+  assert.doesNotMatch(renderGroups('group', { ...state, drawn: false }), /group-marmelada-promo/);
+  assert.match(renderGroups('group-marmelada', state), /data-preview.*\n[\s\S]*Prévia da organização/);
+
+  const button = { disabled: false };
+  const elements = { giverId: { value: 'giver' }, receiverId: { value: 'receiver' }, token: { value: '12345678' } };
+  const form = { elements, hasAttribute: key => key === 'data-preview', getAttribute: () => null, querySelector: () => button };
+  syncGroupMarmeladaForm(form);
+  assert.equal(elements.giverId.disabled, false);
+  assert.equal(elements.receiverId.disabled, false);
+  assert.equal(elements.token.disabled, true);
+  assert.equal(button.disabled, true);
+  syncGroupMarmeladaForm({ ...form, hasAttribute: () => false });
+  assert.equal(elements.token.disabled, false);
+  assert.equal(button.disabled, false);
 });
 
 test('presentation displays only the announced pair and treats only a positive server verdict as success', () => {

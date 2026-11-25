@@ -35,7 +35,7 @@ const state = {
   authMode: storedChallenge?.purpose === 'recover' ? 'recover' : storedChallenge ? 'register' : 'login', authEmail: storedChallenge?.email || '', accountCheck: null, resetToken: '', resendAt: Number(storedChallenge?.resendAt) || 0, requestPayload: null,
 };
 const groupRoutes = new Set(['group', 'group-member', 'group-marmelada', 'invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn', 'reveal', ...WISHLIST_ROUTES]);
-const viewAsRoutes = new Set([...GROUP_ROUTES.filter(screen => screen !== 'group-marmelada'), ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES]);
+const viewAsRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES]);
 const organizerRoutes = new Set(['invite', 'invites-sent', 'draw-confirm', 'draw-running', 'drawn']);
 const allowed = new Set([...AUTH_ROUTES, ...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'verify-link']);
 const signedRoutes = new Set([...GROUP_ROUTES, ...DEPENDENT_ROUTES, ...WISHLIST_ROUTES, ...ADMIN_ROUTES, 'account-ready', 'invitation-accepted']);
@@ -1137,7 +1137,7 @@ function showOwnMarmeladaToken() {
 }
 
 async function toggleMarmeladaTV() {
-  if (route !== 'group-marmelada' || state.viewAs) return;
+  if (route !== 'group-marmelada') return;
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
     else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();

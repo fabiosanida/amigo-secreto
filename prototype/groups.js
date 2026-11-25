@@ -139,7 +139,7 @@ function renderOwnMarmeladaToken(state) {
 }
 
 function renderMarmeladaCard(state) {
-  if (!state.production || !state.drawn || state.viewAs || !state.user?.id || state.group?.organizerId !== state.user.id) return '';
+  if (!state.production || !state.drawn || !state.user?.id || state.group?.organizerId !== state.user.id) return '';
   return `<section class="group-marmelada-promo" aria-labelledby="group-marmelada-promo-title">
     <span class="group-marmelada-promo-icon" aria-hidden="true">${icon('sparkles', 21)}</span>
     <h3 id="group-marmelada-promo-title">É Marmelada?</h3>
@@ -203,7 +203,7 @@ export function renderGroups(route, state) {
     case 'dashboard-empty': return dashboard(state, true);
     case 'create-group': return createGroup(state);
     case 'group': return groupPage(state);
-    case 'group-marmelada': return renderGroupMarmelada(state.groupMarmelada || {});
+    case 'group-marmelada': return renderGroupMarmelada(state.groupMarmelada || {}, { preview: Boolean(state.viewAs) });
     case 'group-member': return groupPage({ ...state, role: 'member' });
     case 'invite': return invitePage(state);
     case 'invites-sent': return invitesSent(state);
