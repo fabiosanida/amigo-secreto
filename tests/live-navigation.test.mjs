@@ -9,6 +9,7 @@ import { renderDependents, DEPENDENT_ROUTES } from '../prototype/dependents.js';
 import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem } from '../prototype/wishlist.js';
 import { cancelPasskey, renderPasskeyOffer, renderViewAsBanner, renderViewAsPicker, renderViewAsResults, supportsPasskeys, usePasskey } from '../prototype/account-tools.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from '../prototype/admin.js';
+import { displayMarmeladaName, syncGroupMarmeladaForm } from '../prototype/marmelada.js';
 import { icon, brand, avatar, escapeHtml, setAvatarDirectory } from '../prototype/ui.js';
 
 const source = readFileSync(new URL('../prototype/live.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
@@ -27,6 +28,7 @@ function harness({ hash = '#welcome', stored = new Map(), selectors = {} } = {})
     window: { scrollTo: noop, addEventListener(type, listener) { listeners[type] = listener; } },
     renderAuth, AUTH_ROUTES, renderGroups, GROUP_ROUTES, renderDependents, DEPENDENT_ROUTES, WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem, renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES, icon, brand, avatar, escapeHtml, setAvatarDirectory,
     cancelPasskey, renderPasskeyOffer, renderViewAsBanner, renderViewAsPicker, renderViewAsResults, supportsPasskeys: () => false, usePasskey,
+    displayMarmeladaName, syncGroupMarmeladaForm,
     showMarmeladaResult: result => { presentations.push(result); },
     setupWishlistFields: noop, showWishlistDiscard: callback => discards.push(callback),
     setupInviteFields: noop, setInviteFieldsBusy: noop, setupGroupFields: noop, parseBudget: Number, setupOTP: noop,
@@ -678,6 +680,48 @@ test('Marmelada ignores an answer received after logout and clears its private s
   answer.respond({ matches: true, group: { name: 'Private event' }, giver: { name: 'Ana' }, receiver: { name: 'Bruno' } }); await checking;
   assert.equal(h.presentations.length, 0); assert.equal(h.state.marmeladaData, null); assert.equal(h.state.user, null);
   assert(!h.app.innerHTML.includes('Private event'));
+});
+
+test('group Marmelada submits a pasted token and shows a contextual notice for invalid codes', async () => {
+  const toast = { textContent: '', classList: new Set() };
+  toast.classList.toggle = (name, enabled) => enabled ? toast.classList.add(name) : toast.classList.delete(name);
+  const h = harness({ hash: '#group-marmelada?id=demo', selectors: { '#toast': toast } });
+  h.requests[0].respond({ user: administrator });
+  await tick();
+  const participants = [{ id: 'giver', name: 'Marina Lacerda' }, { id: 'receiver', name: 'FÁBIO ALMEIDA' }];
+  h.requests.find(request => request.path === '/api/groups/demo/marmelada')
+    .respond({ group: { id: 'demo', name: 'Amigo Secreto de Demonstração' }, participants });
+  await tick();
+
+  const endpoint = '/api/groups/demo/marmelada/check';
+  function submitToken(token, receiverId = 'receiver') {
+    const form = fixtureForm('group-marmelada-check', { giverId: 'giver', receiverId, token });
+    form.noValidate = true;
+    form.reportValidity = () => assert.fail('Browser validation must not intercept the notice');
+    const fields = { '#group-marmelada-giver': {}, '#group-marmelada-receiver': {}, '[data-token-owner]': {}, '[type="submit"]': {},
+      'input[name="giverId"]:checked': { value: 'giver' },
+      'input[name="receiverId"]:checked': receiverId ? { value: receiverId, dataset: { personName: 'Fábio Almeida' } } : null };
+    form.querySelector = key => fields[key] || null;
+    form.reset = () => {};
+    return h.submit({ preventDefault() {}, currentTarget: form });
+  }
+  await submitToken('', '');
+  assert.match(toast.textContent, /etapa 1.*etapa 2/);
+  assert(toast.classList.has('toast-top-right'));
+  await submitToken('0123 456X');
+  assert.match(toast.textContent, /Token inválido.*Fábio Almeida.*Amigo Secreto de Demonstração/);
+  assert.equal(h.requests.filter(request => request.path === endpoint).length, 0);
+  const wrong = submitToken(' 0123 4567 ');
+  const rejected = h.requests.findLast(request => request.path === endpoint);
+  assert.deepEqual(rejected.body, { giverId: 'giver', receiverId: 'receiver', token: '01234567' });
+  rejected.respond({ error: { code: 'MARMELADA_TOKEN_UNAVAILABLE' } }, 422);
+  await wrong;
+  assert.match(toast.textContent, /Token inválido.*Fábio Almeida.*Amigo Secreto de Demonstração/);
+  assert.equal(h.presentations.length, 0);
+  const valid = submitToken('0123 4567');
+  h.requests.findLast(request => request.path === endpoint).respond({ matches: false });
+  await valid;
+  assert.equal(h.presentations[0].matches, false);
 });
 
 test('administrative deletion previews the impact before asking for confirmation and cancellation sends no mutation', async () => {

@@ -14,6 +14,16 @@ body[data-live] #toast{bottom:24px}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 #toast{width:max-content}
+body[data-live] #toast.toast-top-right {
+  top: 24px;
+  right: 16px;
+  bottom: auto;
+  left: auto;
+  max-width: min(440px, calc(100vw - 32px));
+  text-align: left;
+  transform: translateY(-8px);
+}
+body[data-live] #toast.toast-top-right.show { transform: translateY(0); }
 @media(max-width:680px){
   .app-main{min-width:0}
   .app-footer>span{min-width:0;align-items:flex-start}

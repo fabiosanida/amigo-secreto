@@ -7,7 +7,7 @@ import { renderGroups, GROUP_ROUTES } from './groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from './dependents.js';
 import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem, setupWishlistFields, showWishlistDiscard } from './wishlist.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from './admin.js';
-import { ownMarmeladaParticipants, renderMarmeladaTokenDialog, renderMarmeladaTokenList, renderMarmeladaTokenValue, setupGroupMarmeladaForm, setupMarmeladaTokenHelp, showMarmeladaResult, syncGroupMarmeladaForm } from './marmelada.js';
+import { displayMarmeladaName, ownMarmeladaParticipants, renderMarmeladaTokenDialog, renderMarmeladaTokenList, renderMarmeladaTokenValue, setupGroupMarmeladaForm, setupMarmeladaTokenHelp, showMarmeladaResult, syncGroupMarmeladaForm } from './marmelada.js';
 import { cancelPasskey, renderPasskeyOffer, renderViewAsBanner, renderViewAsPicker, renderViewAsResults, supportsPasskeys, usePasskey } from './account-tools.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
 
@@ -545,8 +545,9 @@ async function navigate(next, options = {}) {
     } else renderError(error);
   }
 }
-function toast(message) {
+function toast(message, position = '') {
   const element = document.querySelector('#toast'); if (!element) return;
+  element.classList.toggle('toast-top-right', position === 'top-right');
   element.textContent = message; element.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => element.classList.remove('show'), 5500);
 }
@@ -714,7 +715,7 @@ function responseEmails(value) { return Array.isArray(value) ? value.map(item =>
 async function submit(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  if (form.getAttribute('aria-busy') === 'true' || (form.dataset.form !== 'wishlist-save' && !form.reportValidity())) return;
+  if (form.getAttribute('aria-busy') === 'true' || (!form.noValidate && form.dataset.form !== 'wishlist-save' && !form.reportValidity())) return;
   const data = new FormData(form);
   const value = name => String(data.get(name) || '').trim();
   const type = form.dataset.form;
@@ -745,12 +746,29 @@ async function submit(event) {
       const { group, participants } = state.groupMarmelada, navigation = version, userId = state.user?.id, viewAs = state.viewAs;
       const giver = participants.find(person => person.id === value('giverId'));
       const receiver = participants.find(person => person.id === value('receiverId'));
-      const token = value('token');
+      if (!giver || !receiver || giver.id === receiver.id) {
+        toast('Selecione quem vai revelar na etapa 1 e o nome anunciado na etapa 2.', 'top-right');
+        return;
+      }
+      const token = value('token').replace(/\s/g, '');
+      const invalidToken = `Token inválido. Digite os oito dígitos do token de ${displayMarmeladaName(receiver.name)} para o grupo “${group.name}”.`;
+      if (!/^\d{8}$/.test(token)) {
+        toast(invalidToken, 'top-right');
+        return;
+      }
       form.elements.token.value = '';
-      if (!giver || !receiver) return;
       form.querySelector('.form-error')?.remove();
-      const result = await post(`/groups/${segment(group.id)}/marmelada/check`, { giverId: giver.id, receiverId: receiver.id, token });
-      if (navigation !== version || userId !== state.user?.id || viewAs !== state.viewAs) return;
+      const current = () => navigation === version && userId === state.user?.id && viewAs === state.viewAs;
+      let result;
+      try {
+        result = await post(`/groups/${segment(group.id)}/marmelada/check`, { giverId: giver.id, receiverId: receiver.id, token });
+      } catch (error) {
+        if (!current()) return;
+        if (error.code !== 'MARMELADA_TOKEN_UNAVAILABLE') throw error;
+        toast(invalidToken, 'top-right');
+        return;
+      }
+      if (!current()) return;
       if (typeof result.matches !== 'boolean') throw new ApiError('INVALID_RESPONSE', 'Não foi possível conferir este resultado.');
       form.reset();
       showMarmeladaResult({ ...result, group, giver, receiver });

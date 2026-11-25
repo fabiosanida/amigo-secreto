@@ -12,7 +12,7 @@ test('Marmelada stays behind the administrative renderer and escapes selectable 
   assert(html.includes('&lt;script&gt;secret&lt;/script&gt;')); assert(html.includes('name="giverId"')); assert(html.includes('name="receiverId"'));
 });
 
-test('the creator’s delegated view allows verification after selecting two people and entering the token', () => {
+test('the creator’s delegated view keeps Conferir available and unlocks the token field after both selections', () => {
   const group = { id: 'group', name: 'Natal', organizerId: 'owner' };
   const state = { production: true, drawn: true, group, user: { id: 'owner' }, viewAs: {}, role: 'organizer',
     groupMarmelada: { group, participants: [
@@ -24,6 +24,8 @@ test('the creator’s delegated view allows verification after selecting two peo
   assert.doesNotMatch(renderGroups('group', { ...state, drawn: false }), /group-marmelada-promo/);
   const html = renderGroups('group-marmelada', state);
   assert.match(html, /O mesmo token pode ser usado em outras conferências/);
+  assert.match(html, /<form data-form="group-marmelada-check"[^>]*novalidate>/);
+  assert.match(html, /<button type="submit" class="btn btn-primary btn-block marmelada-check-button">/);
   assert.match(html, /type="radio" name="giverId" value="giver" data-person-name="Ana Bezerra"/);
   assert.match(html, /type="radio" name="receiverId" value="receiver" data-person-name="Gustavo Costa"/);
   assert.match(html, /<img src="data:image\/webp;base64,VGVzdGU="/);
@@ -40,7 +42,8 @@ test('the creator’s delegated view allows verification after selecting two peo
     '#group-marmelada-giver': giverFieldset, '#group-marmelada-receiver': receiverFieldset,
     '[data-token-owner]': tokenOwner, '[type="submit"]': button,
   };
-  const form = { elements, getAttribute: () => null,
+  let busy = false;
+  const form = { elements, getAttribute: () => String(busy),
     querySelector: selector => selectors[selector], querySelectorAll: () => [samePerson, receiver] };
   syncGroupMarmeladaForm(form);
   assert.equal(giverFieldset.disabled, false);
@@ -49,13 +52,13 @@ test('the creator’s delegated view allows verification after selecting two peo
   assert.equal(receiver.disabled, false);
   assert.equal(tokenOwner.textContent, 'Token de Gustavo Costa');
   assert.equal(elements.token.disabled, false);
-  assert.equal(button.disabled, true);
-  elements.token.value = '12345678';
-  syncGroupMarmeladaForm(form);
   assert.equal(button.disabled, false);
   delete selectors['input[name="receiverId"]:checked'];
   syncGroupMarmeladaForm(form);
   assert.equal(elements.token.disabled, true);
+  assert.equal(button.disabled, false);
+  busy = true;
+  syncGroupMarmeladaForm(form);
   assert.equal(button.disabled, true);
 });
 

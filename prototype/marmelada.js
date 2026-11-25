@@ -2,7 +2,7 @@ import { avatar, icon, escapeHtml } from './ui.js';
 
 const escape = escapeHtml;
 const memberName = person => person?.name || 'Participante';
-const displayName = name => name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR')
+export const displayMarmeladaName = name => name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR')
   .replace(/(?<![\p{L}\p{M}])\p{L}/gu, letter => letter.toLocaleUpperCase('pt-BR'));
 const option = person => `<option value="${escape(person.id)}">${escape(memberName(person))}${person.isDependent || person.dependentId ? ` · dependente${person.responsibleName ? ` de ${escape(person.responsibleName)}` : ''}` : ''}</option>`;
 const jar = (tone = 'berry', index = 0) => `<svg class="jam-character jam-${tone}" viewBox="0 0 230 270" aria-hidden="true"><g class="jam-arms"><path d="M48 143 21 116 10 127M181 143l25-29 13 10" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round"/><path d="m21 116 5-17m-5 17L9 105m197 9-2-16m2 16 15-8" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></g><path d="m79 218-9 27-20 1m100-28 10 27 20 1" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round"/><rect x="49" y="55" width="132" height="166" rx="34" fill="var(--jam-fill)" stroke="currentColor" stroke-width="7"/><path d="M54 86h122v54c-12 17-26-17-39 0s-30-14-43 1-25-9-40 5Z" fill="var(--jam-drip)"/><rect x="43" y="35" width="145" height="38" rx="12" fill="var(--jam-lid)" stroke="currentColor" stroke-width="7"/><path d="M65 42v22m23-22v22m23-22v22m23-22v22m23-22v22" stroke="currentColor" stroke-width="4" opacity=".3"/><ellipse cx="90" cy="125" rx="17" ry="23" fill="#fff9e8"/><ellipse cx="142" cy="125" rx="17" ry="23" fill="#fff9e8"/><circle cx="${index % 2 ? 94 : 84}" cy="127" r="7" fill="currentColor"/><circle cx="${index % 2 ? 145 : 138}" cy="122" r="7" fill="currentColor"/><path d="M79 91q13-13 25 0m26-1q14-10 24 3" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/><ellipse cx="115" cy="150" rx="9" ry="7" fill="var(--jam-drip)"/><path d="M87 164q28 39 58-2" fill="#fff9e8" stroke="currentColor" stroke-width="6" stroke-linecap="round"/><path d="m105 171 0 10m14-9 0 13m13-17 2 10" stroke="currentColor" stroke-width="3"/><path d="m67 181 8 8m82-4 6-10" stroke="var(--jam-drip)" stroke-width="7" stroke-linecap="round"/><path d="M76 206h78" stroke="#fff9e8" stroke-width="5" stroke-linecap="round" opacity=".65"/></svg>`;
@@ -27,7 +27,7 @@ function participantTags(name, people) {
 export function renderGroupMarmelada({ group, participants } = {}) {
   if (!group) return '';
   const groupRoute = `group?${new URLSearchParams({ id: group.id })}`;
-  const people = participants.map(person => ({ ...person, name: displayName(memberName(person)) }))
+  const people = participants.map(person => ({ ...person, name: displayMarmeladaName(memberName(person)) }))
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   return `<section class="marmelada-page group-marmelada-page">
     <a class="group-back" href="#${groupRoute}" data-route="${groupRoute}">${icon('arrow-left', 16)} Voltar para o grupo</a>
@@ -37,7 +37,7 @@ export function renderGroupMarmelada({ group, participants } = {}) {
     </div>
     <div class="marmelada-layout">
       <section class="panel marmelada-form-card">
-        <form data-form="group-marmelada-check" class="marmelada-check-form">
+        <form data-form="group-marmelada-check" class="marmelada-check-form" novalidate>
           <fieldset class="field marmelada-people-field" id="group-marmelada-giver">
             <legend><span class="marmelada-step">01</span> Quem vai revelar?</legend>
             ${participantTags('giverId', people)}
@@ -48,14 +48,14 @@ export function renderGroupMarmelada({ group, participants } = {}) {
           </fieldset>
           <div class="field">
             <label for="group-marmelada-token"><span class="marmelada-step">03</span> <span data-token-owner>Token da pessoa da etapa 2</span></label>
-            <input id="group-marmelada-token" name="token" type="password" inputmode="numeric" pattern="[0-9]{8}"
+            <input id="group-marmelada-token" name="token" type="password" inputmode="numeric"
               autocomplete="off" required disabled aria-describedby="group-marmelada-help">
           </div>
           <div class="marmelada-check-note" id="group-marmelada-help">${icon('info', 17)}
             <p>Peça à pessoa da etapa 2 o código de oito dígitos que aparece abaixo de <strong>Sorteio realizado</strong> na página do grupo.
-              O mesmo token pode ser usado em outras conferências.</p>
+              Você pode digitar ou colar o código. O mesmo token pode ser usado em outras conferências.</p>
           </div>
-          <button type="submit" class="btn btn-primary btn-block marmelada-check-button" disabled>${icon('sparkles', 19)} Conferir</button>
+          <button type="submit" class="btn btn-primary btn-block marmelada-check-button">${icon('sparkles', 19)} Conferir</button>
         </form>
       </section>
       <aside class="marmelada-intro-art">${jar('berry')}<h2>Será que<br>é <em>marmelada?</em></h2><p>A tela mostra o veredito<br>sobre o nome anunciado.</p></aside>
@@ -76,7 +76,7 @@ export function syncGroupMarmeladaForm(form) {
   form.querySelector('[data-token-owner]').textContent = receiver
     ? `Token de ${receiver.dataset.personName}` : 'Token da pessoa da etapa 2';
   token.disabled = busy || !giver || !receiver || giver.value === receiver.value;
-  form.querySelector('[type="submit"]').disabled = token.disabled || !/^\d{8}$/.test(token.value);
+  form.querySelector('[type="submit"]').disabled = busy;
 }
 
 export function setupGroupMarmeladaForm(form) {
@@ -89,11 +89,6 @@ export function setupGroupMarmeladaForm(form) {
     }
     form.elements.token.value = '';
     form.querySelector('.form-error')?.remove();
-    syncGroupMarmeladaForm(form);
-  });
-  form.elements.token.addEventListener('input', ({ target }) => {
-    const digits = target.value.replace(/\D/g, '').slice(0, 8);
-    if (target.value !== digits) target.value = digits;
     syncGroupMarmeladaForm(form);
   });
   syncGroupMarmeladaForm(form);
@@ -141,7 +136,7 @@ export function renderMarmeladaTokenValue(item) {
 export function renderMarmeladaTokenList(people, tokens) {
   const ordered = [...people].sort((a, b) => Number(Boolean(a.isDependent)) - Number(Boolean(b.isDependent)));
   return `<ul class="marmelada-token-list">${ordered.map((person, index) => {
-    const name = displayName(memberName(person));
+    const name = displayMarmeladaName(memberName(person));
     return `<li>
       <span aria-hidden="true">${avatar(name, person.color ?? index, '', person.avatar)}</span>
       <span class="marmelada-token-person"><strong>${escape(name)}</strong><small>${person.isDependent ? 'Dependente' : 'Titular'}</small></span>
