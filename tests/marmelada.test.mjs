@@ -15,18 +15,39 @@ test('Marmelada stays behind the administrative renderer and escapes selectable 
 test('the organizer can preview the group card and form without sending a verification', () => {
   const group = { id: 'group', name: 'Natal', organizerId: 'owner' };
   const state = { production: true, drawn: true, group, user: { id: 'owner' }, viewAs: {}, role: 'organizer',
-    groupMarmelada: { group, participants: [{ id: 'giver', name: 'Ana' }] } };
+    groupMarmelada: { group, participants: [
+      { id: 'giver', name: 'ANA BEZERRA', avatar: 'data:image/webp;base64,VGVzdGU=' },
+      { id: 'receiver', name: 'GUSTAVO COSTA' },
+    ] } };
   assert.match(renderGroups('group', state), /data-route="group-marmelada">Conferir/);
   assert.doesNotMatch(renderGroups('group', { ...state, user: { id: 'member' }, role: 'member' }), /group-marmelada-promo/);
   assert.doesNotMatch(renderGroups('group', { ...state, drawn: false }), /group-marmelada-promo/);
-  assert.match(renderGroups('group-marmelada', state), /data-preview.*\n[\s\S]*Prévia da organização/);
+  const html = renderGroups('group-marmelada', state);
+  assert.match(html, /data-preview.*\n[\s\S]*Prévia da organização/);
+  assert.match(html, /type="radio" name="giverId" value="giver" data-person-name="Ana Bezerra"/);
+  assert.match(html, /type="radio" name="receiverId" value="receiver" data-person-name="Gustavo Costa"/);
+  assert.match(html, /<img src="data:image\/webp;base64,VGVzdGU="/);
+  assert.doesNotMatch(html, /<select|ANA BEZERRA|GUSTAVO COSTA/);
 
   const button = { disabled: false };
-  const elements = { giverId: { value: 'giver' }, receiverId: { value: 'receiver' }, token: { value: '12345678' } };
-  const form = { elements, hasAttribute: key => key === 'data-preview', getAttribute: () => null, querySelector: () => button };
+  const tokenOwner = {};
+  const giverFieldset = {}, receiverFieldset = {};
+  const giver = { value: 'giver' }, receiver = { value: 'receiver', dataset: { personName: 'Gustavo Costa' } };
+  const samePerson = { value: giver.value };
+  const elements = { token: { value: '12345678' } };
+  const selectors = {
+    'input[name="giverId"]:checked': giver, 'input[name="receiverId"]:checked': receiver,
+    '#group-marmelada-giver': giverFieldset, '#group-marmelada-receiver': receiverFieldset,
+    '[data-token-owner]': tokenOwner, '[type="submit"]': button,
+  };
+  const form = { elements, hasAttribute: key => key === 'data-preview', getAttribute: () => null,
+    querySelector: selector => selectors[selector], querySelectorAll: () => [samePerson, receiver] };
   syncGroupMarmeladaForm(form);
-  assert.equal(elements.giverId.disabled, false);
-  assert.equal(elements.receiverId.disabled, false);
+  assert.equal(giverFieldset.disabled, false);
+  assert.equal(receiverFieldset.disabled, false);
+  assert.equal(samePerson.disabled, true);
+  assert.equal(receiver.disabled, false);
+  assert.equal(tokenOwner.textContent, 'Token de Gustavo Costa');
   assert.equal(elements.token.disabled, true);
   assert.equal(button.disabled, true);
   syncGroupMarmeladaForm({ ...form, hasAttribute: () => false });

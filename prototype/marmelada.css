@@ -30,6 +30,55 @@
 .group-marmelada-promo .btn { width: 100%; justify-content: space-between; background: #743748; color: #fff; }
 .group-marmelada-promo .btn:hover { background: #5e293a; }
 .group-marmelada-page .admin-title-row h1 { margin-top: 8px; }
+.marmelada-check-form .marmelada-people-field {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+.marmelada-people-field legend { padding: 0; }
+.marmelada-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.marmelada-person { position: relative; min-width: 0; max-width: 100%; }
+.marmelada-people .marmelada-person input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+}
+.marmelada-person-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 5px 11px 5px 6px;
+  border: 1px solid #d8dfcf;
+  border-radius: 24px;
+  background: #fbfcf8;
+  color: var(--ink);
+  line-height: 1.35;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.marmelada-person-photo, .marmelada-person-tag > .icon { flex: none; }
+.marmelada-person-photo > .avatar { width: 30px; height: 30px; font-size: 11px; }
+.marmelada-person-tag > .icon { display: none; }
+.marmelada-person:hover input:not(:disabled) + .marmelada-person-tag { border-color: #78936d; }
+.marmelada-person input:checked + .marmelada-person-tag {
+  background: #e3ecd9;
+  border-color: #759067;
+  box-shadow: inset 0 0 0 1px #759067;
+}
+.marmelada-person input:checked + .marmelada-person-tag > .icon { display: block; }
+.marmelada-person input:focus-visible + .marmelada-person-tag { outline: 3px solid #78936d; outline-offset: 2px; }
+.marmelada-person input:disabled + .marmelada-person-tag { opacity: .55; cursor: default; }
+.group-marmelada-page .marmelada-check-form input[name="token"] { display: block; margin-top: 12px; }
 .marmelada-check-form input[name="token"], [data-marmelada-token-form] select {
   width: 100%;
   min-height: 48px;
