@@ -152,7 +152,7 @@ function renderMarmeladaCard(state) {
     <span class="group-marmelada-promo-icon" aria-hidden="true">${icon('sparkles', 21)}</span>
     <h3 id="group-marmelada-promo-title">É Marmelada?</h3>
     <p>Acertou ou é marmelada? Confira o nome anunciado na hora da troca.</p>
-    <button type="button" class="btn" data-route="group-marmelada">Conferir ${icon('arrow-right', 16)}</button>
+    <button type="button" class="btn" data-route="group-marmelada" data-group-id="${escape(state.group.id)}">Conferir ${icon('arrow-right', 16)}</button>
   </section>`;
 }
 

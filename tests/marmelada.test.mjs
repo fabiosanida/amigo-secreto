@@ -19,7 +19,7 @@ test('the creator’s delegated view allows verification after selecting two peo
       { id: 'giver', name: 'ANA BEZERRA', avatar: 'data:image/webp;base64,VGVzdGU=' },
       { id: 'receiver', name: 'GUSTAVO COSTA' },
     ] } };
-  assert.match(renderGroups('group', state), /data-route="group-marmelada">Conferir/);
+  assert.match(renderGroups('group', state), /data-route="group-marmelada" data-group-id="group">Conferir/);
   assert.doesNotMatch(renderGroups('group', { ...state, user: { id: 'member' }, role: 'member' }), /group-marmelada-promo/);
   assert.doesNotMatch(renderGroups('group', { ...state, drawn: false }), /group-marmelada-promo/);
   const html = renderGroups('group-marmelada', state);
