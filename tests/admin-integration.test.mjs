@@ -127,7 +127,7 @@ test('private administration and creator deletion enforce server identity, full 
       assert.equal((await api('session', { cookie: member.cookie })).data.user.firstName, 'Nome atualizado');
       await api('profile', { cookie: member.cookie, body: { firstName: member.name, lastName: fixture } });
 
-      for (const restricted of ['auth/logout', 'auth/passkeys/register/options', 'auth/password/reset', 'admin/marmelada/check', `${drawnPath}/marmelada/token`, `${drawnPath}/marmelada/check`]) {
+      for (const restricted of ['auth/logout', 'auth/passkeys/register/options', 'auth/password/reset', 'admin/marmelada/check', `${drawnPath}/marmelada/token`, `${drawnPath}/marmelada/tokens`, `${drawnPath}/marmelada/check`]) {
         assert.equal((await api(`${asOwner}/${restricted}`, { cookie: admin.cookie, body: {} })).status, 404);
       }
       const pendingView = await api(`${asOwner}/groups/${pending.id}`, { cookie: admin.cookie });

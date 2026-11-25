@@ -7,7 +7,7 @@ import { renderGroups, GROUP_ROUTES } from './groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from './dependents.js';
 import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem, setupWishlistFields, showWishlistDiscard } from './wishlist.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from './admin.js';
-import { ownMarmeladaParticipants, renderMarmeladaTokenDialog, setupGroupMarmeladaForm, showMarmeladaResult, syncGroupMarmeladaForm } from './marmelada.js';
+import { ownMarmeladaParticipants, renderMarmeladaTokenDialog, renderMarmeladaTokenList, renderMarmeladaTokenValue, setupGroupMarmeladaForm, showMarmeladaResult, syncGroupMarmeladaForm } from './marmelada.js';
 import { cancelPasskey, renderPasskeyOffer, renderViewAsBanner, renderViewAsPicker, renderViewAsResults, supportsPasskeys, usePasskey } from './account-tools.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
 
@@ -130,6 +130,8 @@ function render() {
   setupInviteFields(document.querySelector('#app'));
   setupGroupFields(document.querySelector('#app'));
   if (route === 'group-marmelada') setupGroupMarmeladaForm(document.querySelector('[data-form="group-marmelada-check"]'));
+  const inlineToken = document.querySelector('[data-marmelada-tokens="inline"]');
+  if (inlineToken) void loadOwnMarmeladaTokens(inlineToken);
   if (route === 'wishlist') setupWishlistFields(document.querySelector('#app'), state.wishlist);
   if (['register', 'login', 'recover-password'].includes(route)) {
     const user = currentUser();
@@ -1094,46 +1096,46 @@ async function logout(keepInvitation = false) {
   state.invitation = null; state.authEmail = '';
   await navigate(keepInvitation ? 'invitation' : 'welcome', keepInvitation ? { token: invite } : {});
 }
-function showOwnMarmeladaToken() {
+async function loadOwnMarmeladaTokens(output) {
   const people = ownMarmeladaParticipants(viewState());
   const groupId = state.group?.id, userId = state.user?.id, navigation = version;
+  if (!people.length || !groupId || output.getAttribute('aria-busy') === 'true') return;
+  const dialog = output.closest('dialog');
+  const current = () => output.isConnected && (!dialog || dialog.open) && !state.viewAs
+    && state.user?.id === userId && state.group?.id === groupId && navigation === version;
+  output.setAttribute('aria-busy', 'true');
+  output.innerHTML = '<span class="marmelada-token-status">Carregando…</span>';
+  try {
+    const result = await post(`/groups/${segment(groupId)}/marmelada/tokens`, { membershipIds: people.map(person => person.id) });
+    if (!current()) return;
+    const tokens = new Map((result.tokens || []).map(item => [item.membershipId, item]));
+    if (!people.every(person => {
+      const item = tokens.get(person.id);
+      return item?.used === true || (typeof item?.token === 'string' && /^\d{8}$/.test(item.token));
+    })) throw new ApiError('INVALID_RESPONSE', 'Não foi possível exibir o token.');
+    output.innerHTML = dialog
+      ? renderMarmeladaTokenList(people, tokens)
+      : renderMarmeladaTokenValue(tokens.get(people[0].id));
+  } catch (error) {
+    if (!current()) return;
+    if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); }
+    else output.innerHTML = `<span class="marmelada-token-status">${escapeHtml(errorMessage(error))}</span>
+      <button type="button" class="btn btn-secondary marmelada-token-retry" data-action="my-marmelada-token">Tentar novamente</button>`;
+  } finally {
+    if (current()) output.removeAttribute('aria-busy');
+  }
+}
+
+async function showOwnMarmeladaTokens(target) {
+  const output = target.closest('[data-marmelada-tokens]');
+  if (output) return loadOwnMarmeladaTokens(output);
+  if (!ownMarmeladaParticipants(viewState()).some(person => person.isDependent)) return;
   const dialog = document.querySelector('#marmelada-token-dialog');
-  if (!people.length || !groupId || !dialog || dialog.open) return;
-  dialog.innerHTML = renderMarmeladaTokenDialog(people);
-  const form = dialog.querySelector('form');
-  const choice = form.elements.membershipId, output = form.querySelector('[data-marmelada-token-value]');
-  const button = form.querySelector('[type="submit"]');
-  const current = () => dialog.open && form.isConnected && !state.viewAs && state.user?.id === userId && state.group?.id === groupId && navigation === version;
-  const clear = () => {
-    output.textContent = '';
-    output.hidden = true;
-    form.querySelector('.form-error')?.remove();
-  };
-  choice.addEventListener('change', clear);
-  form.addEventListener('submit', async event => {
-    event.preventDefault();
-    if (!current() || form.getAttribute('aria-busy') === 'true') return;
-    const membershipId = choice.value;
-    if (!people.some(person => person.id === membershipId)) return;
-    clear();
-    form.setAttribute('aria-busy', 'true');
-    choice.disabled = true; button.disabled = true;
-    try {
-      const result = await post(`/groups/${segment(groupId)}/marmelada/token`, { membershipId });
-      if (!current()) return;
-      if (!/^\d{8}$/.test(result.token)) throw new ApiError('INVALID_RESPONSE', 'Não foi possível exibir o token.');
-      output.textContent = `${result.token.slice(0, 4)} ${result.token.slice(4)}`;
-      output.hidden = false;
-    } catch (error) {
-      if (!current()) return;
-      if (error.status === 401) { state.user = null; clearPrivateState(); await navigate('login'); toast(errorMessage(error)); }
-      else formError(form, errorMessage(error));
-    } finally {
-      if (current()) { form.removeAttribute('aria-busy'); choice.disabled = false; button.disabled = false; }
-    }
-  });
+  if (!dialog || dialog.open) return;
+  dialog.innerHTML = renderMarmeladaTokenDialog();
   dialog.addEventListener('close', () => { if (!dialog.open) dialog.replaceChildren(); }, { once: true });
   dialog.showModal();
+  await loadOwnMarmeladaTokens(dialog.querySelector('[data-marmelada-tokens="list"]'));
 }
 
 async function toggleMarmeladaTV() {
@@ -1147,7 +1149,7 @@ async function toggleMarmeladaTV() {
 
 async function action(name, target) {
   switch (name) {
-    case 'my-marmelada-token': showOwnMarmeladaToken(); break;
+    case 'my-marmelada-token': await showOwnMarmeladaTokens(target); break;
     case 'marmelada-tv': await toggleMarmeladaTV(); break;
     case 'view-as': await showViewAsPicker(); break;
     case 'view-as-page': {

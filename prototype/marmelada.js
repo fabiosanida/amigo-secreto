@@ -53,7 +53,7 @@ export function renderGroupMarmelada({ group, participants } = {}, { preview = f
           </div>
           <div class="marmelada-check-note" id="group-marmelada-help">${icon('info', 17)}
             ${preview ? '<p><strong>Prévia da organização.</strong> Na hora da troca, quem criou o grupo pode conferir os nomes pela própria conta.</p>' :
-              '<p>Peça à pessoa da etapa 2 para abrir <strong>Meu token da troca</strong> na própria conta e dizer o código de oito dígitos. Cada token vale para uma conferência.</p>'}
+              '<p>Peça à pessoa da etapa 2 o código de oito dígitos que aparece abaixo de <strong>Sorteio realizado</strong> na página do grupo. Cada token vale para uma conferência.</p>'}
           </div>
           <button type="submit" class="btn btn-primary btn-block marmelada-check-button" disabled>${icon('sparkles', 19)} Conferir</button>
         </form>
@@ -102,20 +102,34 @@ export function ownMarmeladaParticipants(state) {
     && (person.userId === userId || (person.isDependent && person.guardianId === userId)));
 }
 
-export function renderMarmeladaTokenDialog(people) {
-  return `<form class="account-tool-panel" data-marmelada-token-form>
+export function renderMarmeladaTokenValue(item) {
+  if (item.used) return '<span class="marmelada-token-status">Token já usado</span>';
+  const { token } = item;
+  return `<strong class="marmelada-token-code">${escape(token.slice(0, 4))} ${escape(token.slice(4))}</strong>`;
+}
+
+export function renderMarmeladaTokenList(people, tokens) {
+  const ordered = [...people].sort((a, b) => Number(Boolean(a.isDependent)) - Number(Boolean(b.isDependent)));
+  return `<ul class="marmelada-token-list">${ordered.map((person, index) => {
+    const name = displayName(memberName(person));
+    return `<li>
+      <span aria-hidden="true">${avatar(name, person.color ?? index, '', person.avatar)}</span>
+      <span class="marmelada-token-person"><strong>${escape(name)}</strong><small>${person.isDependent ? 'Dependente' : 'Titular'}</small></span>
+      ${renderMarmeladaTokenValue(tokens.get(person.id))}
+    </li>`;
+  }).join('')}</ul>`;
+}
+
+export function renderMarmeladaTokenDialog() {
+  return `<section class="account-tool-panel">
     <span class="auth-form-symbol">${icon('lock', 23)}</span>
-    <h2 id="marmelada-token-title">Meu token da troca</h2>
-    <p>Seu código é fixo neste amigo secreto e fica disponível até ser usado. Se alguém anunciar que tirou você, diga o token a quem estiver conduzindo a troca.</p>
-    ${people.length > 1 ? `<label class="field" for="marmelada-token-person">Token para
-      <select id="marmelada-token-person" name="membershipId" required>${people.map(option).join('')}</select>
-    </label>` : `<input type="hidden" name="membershipId" value="${escape(people[0].id)}">`}
-    <output class="marmelada-token-value" data-marmelada-token-value aria-live="polite" hidden></output>
+    <h2 id="marmelada-token-title">Meus tokens da troca</h2>
+    <p>Cada código vale para uma conferência. Na hora da troca, informe o token da pessoa anunciada como destinatária do presente.</p>
+    <div data-marmelada-tokens="list" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>
     <div class="account-tool-actions">
       <button type="button" class="btn btn-secondary" data-action="close-dialog">Fechar</button>
-      <button type="submit" class="btn btn-primary">Ver meu token</button>
     </div>
-  </form>`;
+  </section>`;
 }
 
 export function renderMarmeladaResult(result) {

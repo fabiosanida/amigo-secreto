@@ -8,7 +8,23 @@
 @media(max-height:650px) and (min-width:650px){.marmelada-stage{padding:14px 25px}.marmelada-presentation-content{padding:10px 10px 7px}.marmelada-success-seal{display:none}.marmelada-presentation-content h1{font-size:65px;margin:10px 0 13px;letter-spacing:-4px}.marmelada-wrong .marmelada-presentation-content h1{font-size:65px}.marmelada-result-line{font-size:14px;margin:3px 0 12px}.marmelada-announced-pair{padding:10px 25px;font-size:15px}.marmelada-result-group{margin:9px 0 0;font-size:10px}.marmelada-result-kicker{font-size:10px}.marmelada-result-secret{font-size:10px}.marmelada-presentation-controls{gap:8px;margin:7px 0 0}.marmelada-presentation-controls>.btn{min-height:38px;padding:8px 14px;font-size:11px}.marmelada-jam-crew .jam-character{width:160px;bottom:13%}}
 @media(prefers-reduced-motion:reduce){.marmelada-stage *,.marmelada-page *{animation:none!important;transition:none!important}.marmelada-confetti>i{top:calc(var(--x) * .72);transform:rotate(var(--turn));opacity:.45}.marmelada-balloon{bottom:13%;transform:rotate(var(--tilt));opacity:.35}.marmelada-balloon:nth-child(2n){bottom:64%}}
 
-.group-exchange-tools { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 24px; }
+.group-detail-title > .group-detail-status {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  align-items: flex-end;
+  gap: 10px;
+}
+.group-token-card {
+  min-width: 152px;
+  padding: 9px 12px;
+  border: 1px solid #d7e2ce;
+  border-radius: 12px;
+  background: #f0f4eb;
+  text-align: center;
+}
+.group-token-caption { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 3px; font-size: 12px; font-weight: 600; }
+.group-token-trigger.btn { min-height: 40px; padding: 7px 12px; font-size: 12px; }
 .group-marmelada-promo {
   margin-top: 20px;
   padding: 16px;
@@ -79,7 +95,7 @@
 .marmelada-person input:focus-visible + .marmelada-person-tag { outline: 3px solid #78936d; outline-offset: 2px; }
 .marmelada-person input:disabled + .marmelada-person-tag { opacity: .55; cursor: default; }
 .group-marmelada-page .marmelada-check-form input[name="token"] { display: block; margin-top: 12px; }
-.marmelada-check-form input[name="token"], [data-marmelada-token-form] select {
+.marmelada-check-form input[name="token"] {
   width: 100%;
   min-height: 48px;
   border: 1px solid #d7e1d0;
@@ -90,20 +106,40 @@
   font-size: 16px;
 }
 .marmelada-check-form input[name="token"]:disabled { background: #f1f2ec; }
-.marmelada-token-value:not([hidden]) {
-  display: block;
-  margin: 18px 0;
-  padding: 13px;
-  border: 1px solid #d7e1d0;
-  border-radius: 12px;
-  background: #eef3e8;
+.marmelada-token-code {
+  display: inline-block;
   color: var(--ink);
-  text-align: center;
-  font: 600 clamp(30px, 8vw, 45px)/1.2 var(--sans);
-  letter-spacing: .09em;
+  font-size: 21px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
+  letter-spacing: .07em;
+  white-space: nowrap;
+}
+.marmelada-token-status { color: #52634e; font-size: 12px; }
+.marmelada-token-list {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 16px 0;
+}
+.marmelada-token-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid #d7e2ce;
+  border-radius: 12px;
+  background: #f0f4eb;
+}
+.marmelada-token-person { display: grid; gap: 2px; overflow-wrap: anywhere; }
+.marmelada-token-person small { color: #52634e; }
+.marmelada-token-retry { display: block; margin: 5px auto 0; }
+@media (max-width: 680px) {
+  .group-detail-title > .group-detail-status { align-items: flex-start; margin-top: 16px; }
 }
 @media (max-width: 480px) {
-  .group-exchange-tools .btn { flex: 1 1 155px; }
   .group-marmelada-page .admin-title-row > .btn { align-self: flex-start; }
+  .marmelada-token-list .marmelada-token-code { font-size: 16px; }
 }

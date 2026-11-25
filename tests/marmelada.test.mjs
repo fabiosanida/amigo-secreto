@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderAdmin } from '../prototype/admin.js';
 import { renderGroups } from '../prototype/groups.js';
-import { renderMarmelada, renderMarmeladaResult, showMarmeladaResult, syncGroupMarmeladaForm } from '../prototype/marmelada.js';
+import { renderMarmelada, renderMarmeladaResult, renderMarmeladaTokenList, showMarmeladaResult, syncGroupMarmeladaForm } from '../prototype/marmelada.js';
 
 test('Marmelada stays behind the administrative renderer and escapes selectable participant names', () => {
   const data = { group: { id: 'group', name: '<script>secret</script>' }, participants: [{ id: 'giver', name: '<img src=x onerror=alert(1)>' }] };
@@ -65,6 +65,22 @@ test('presentation displays only the announced pair and treats only a positive s
   const correct = renderMarmeladaResult({ ...result, matches: true });
   assert(correct.includes('marmelada-correct')); assert(correct.includes('O amigo secreto é esse mesmo.'));
   assert(!correct.includes('É MARMELADA!'));
+});
+
+test('the group header shows a personal token or opens a single list for the holder and dependents', () => {
+  const user = { id: 'guardian' }, group = { id: 'group', name: 'Natal' };
+  const holder = { id: 'member-1', userId: user.id, name: 'ANA BEZERRA', status: 'accepted' };
+  const child = { id: 'member-2', guardianId: user.id, name: 'BIA BEZERRA', isDependent: true, status: 'accepted' };
+  const state = { production: true, drawn: true, role: 'member', user, group, participants: [holder] };
+  const solo = renderGroups('group', state);
+  assert.match(solo, /class="group-detail-status"[\s\S]*Sorteio realizado[\s\S]*data-marmelada-tokens="inline"/);
+  assert.doesNotMatch(solo, /Ver tokens da troca/);
+  const family = renderGroups('group', { ...state, participants: [child, holder] });
+  assert.match(family, /class="group-detail-status"[\s\S]*Sorteio realizado[\s\S]*Ver tokens da troca/);
+  assert.doesNotMatch(family, /data-marmelada-tokens="inline"/);
+  assert.doesNotMatch(renderGroups('group', { ...state, viewAs: {} }), /data-marmelada-tokens="inline"|Ver tokens da troca/);
+  const html = renderMarmeladaTokenList([child, holder], new Map([[holder.id, { token: '01234567' }], [child.id, { used: true }]]));
+  assert.match(html, /Ana Bezerra[\s\S]*0123 4567[\s\S]*Bia Bezerra[\s\S]*Token já usado/);
 });
 
 function presentationFixture({ fullscreenSupported = true } = {}) {

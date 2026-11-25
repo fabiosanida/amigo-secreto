@@ -132,9 +132,15 @@ function renderEventStrip(state) {
 }
 
 function renderOwnMarmeladaToken(state) {
-  if (!state.production || !ownMarmeladaParticipants(state).length) return '';
-  return `<div class="group-exchange-tools">
-    <button type="button" class="btn btn-secondary" data-action="my-marmelada-token">${icon('lock', 17)} Meu token da troca</button>
+  if (!state.production) return '';
+  const people = ownMarmeladaParticipants(state);
+  if (!people.length) return '';
+  if (people.some(person => person.isDependent)) {
+    return `<button type="button" class="btn btn-secondary group-token-trigger" data-action="my-marmelada-token" aria-haspopup="dialog">${icon('lock', 16)} Ver tokens da troca</button>`;
+  }
+  return `<div class="group-token-card">
+    <span class="group-token-caption">${icon('lock', 14)} Meu token da troca</span>
+    <div data-marmelada-tokens="inline" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>
   </div>`;
 }
 
@@ -155,9 +161,8 @@ function groupPage(state) {
   const organizerEmail = state.organizerEmail || (isMember ? (state.production ? '' : 'ana@exemplo.com') : state.user?.email);
   const organizerName = state.group?.organizerName?.split(' ')[0] || people.find(person => person.email === organizerEmail)?.name?.split(' ')[0] || (state.production ? 'quem organiza o grupo' : 'Ana');
   const memberSidebar = `<div class="panel group-next-card group-member-card"><span class="group-member-check">${icon(state.drawn ? 'gift' : 'check', 25)}</span><span class="eyebrow">VOCÊ FAZ PARTE</span><h2>${state.drawn ? 'Sua surpresa está pronta.' : 'Sua participação está confirmada.'}</h2><p>${state.drawn ? 'Chegou a hora de descobrir quem vai receber seu carinho.' : `Agora é só aguardar ${escape(organizerName)} fazer o sorteio. Vamos avisar por e-mail quando seu amigo secreto estiver definido.`}</p><div class="group-member-summary">${icon('users', 17)} <span><strong>${confirmed.length} pessoas</strong> já confirmaram presença.</span></div>${state.drawn ? '' : `<div class="group-member-waiting">${icon('clock', 16)} Aguardando o sorteio</div>`}</div>`;
-  return `<section class="group-detail-page">${back('dashboard', 'Meus grupos')}<div class="group-detail-title"><div><span class="eyebrow">GENTE QUERIDA, PRESENTE CERTO</span><h1>${escape(state.group?.name)}</h1><p>${escape(state.group?.description || 'Um encontro para criar novas memórias.')}</p></div><span class="pill ${state.drawn ? 'pill-green' : 'pill-orange'}">${icon(state.drawn ? 'check-circle' : 'clock', 14)} ${state.drawn ? 'Sorteio realizado' : 'Aguardando sorteio'}</span></div>
+  return `<section class="group-detail-page">${back('dashboard', 'Meus grupos')}<div class="group-detail-title"><div><span class="eyebrow">GENTE QUERIDA, PRESENTE CERTO</span><h1>${escape(state.group?.name)}</h1><p>${escape(state.group?.description || 'Um encontro para criar novas memórias.')}</p></div><div class="group-detail-status"><span class="pill ${state.drawn ? 'pill-green' : 'pill-orange'}">${icon(state.drawn ? 'check-circle' : 'clock', 14)} ${state.drawn ? 'Sorteio realizado' : 'Aguardando sorteio'}</span>${renderOwnMarmeladaToken(state)}</div></div>
     ${renderEventStrip(state)}
-    ${renderOwnMarmeladaToken(state)}
     ${actionCards ? `<div class="group-action-grid">${actionCards}</div>` : ''}
     ${state.production && !isMember && state.group?.notificationFailures ? `<div class="inline-notice" role="status">${icon('mail', 20)}<div><strong>Alguns avisos por e-mail não foram enviados.</strong><p>${state.drawn ? 'O sorteio está salvo e os resultados já podem ser consultados na conta.' : 'Seu grupo está salvo. Você pode acompanhar os envios e tentar novamente por aqui.'}</p><button class="btn btn-secondary" data-action="retry-notifications">Tentar enviar novamente ${icon('refresh', 16)}</button></div></div>` : ''}
     <div class="group-detail-grid"><div class="group-roster-column"><div class="group-participants-panel panel"><div class="group-participants-heading"><div><h2>A turma <span>${people.length}</span></h2><p>Quem vai fazer parte dessa história.</p></div>${!state.drawn && !isMember ? `<div class="group-participant-tools"><button class="btn btn-secondary group-invite-button" data-route="invite">${icon('mail', 17)} Convidar pessoas</button>${state.production && state.user?.id && state.group?.organizerId === state.user.id ? `<button type="button" class="btn btn-secondary group-invite-button" data-action="add-group-dependent">${icon('plus', 17)} Adicionar dependente</button>` : ''}</div>` : ''}</div><div class="group-table-tabs"><span class="group-active-tab">${icon('users', 17)} Participantes</span>${state.production ? `<button type="button" class="group-text-button" data-action="refresh-group">${icon('refresh', 15)} Atualizar lista</button>` : !isMember ? `<a href="#email-invite" data-route="email-invite">${icon('mail', 16)} Prévia do convite ${icon('arrow-right', 14)}</a>` : ''}</div><div class="group-table-wrap"><table class="group-participants-table"><thead><tr><th>PARTICIPANTE</th><th>STATUS DO CONVITE</th><th><span class="group-sr-only">Ações</span></th></tr></thead><tbody>${people.map((p, i) => participantRow(p, i, state)).join('')}</tbody></table>${people.length === 0 ? '<div class="group-no-participants">A turma está se formando. Envie o primeiro convite!</div>' : ''}</div><div class="group-table-footnote">${icon('info', 14)} A abertura do e-mail é estimada e não confirma a leitura.</div></div>${renderGroupDependents(state)}</div>

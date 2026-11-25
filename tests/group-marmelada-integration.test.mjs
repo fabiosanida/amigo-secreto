@@ -51,6 +51,7 @@ test('group Marmelada checks one announced pair using the announced recipient’
   }
   const path = (g, suffix = '') => `groups/${g.id}/marmelada${suffix}`;
   const issue = (g, account, membershipId) => api(path(g, '/token'), account, { membershipId });
+  const list = (g, account, membershipIds) => api(path(g, '/tokens'), account, { membershipIds });
   const check = (g, account, giverId, receiverId, token) => api(path(g, '/check'), account, { giverId, receiverId, token });
 
   try {
@@ -116,6 +117,11 @@ test('group Marmelada checks one announced pair using the announced recipient’
       assert.deepEqual(wrong.data, { matches: false });
       assert.equal((await check(g, host, hostSlot, ana, code)).status, 422);
       assert.equal((await issue(g, a, ana)).status, 409);
+      const family = await list(g, a, [ana, bia]);
+      assert.equal(family.status, 200);
+      assert.match(family.cache, /no-store/);
+      assert.deepEqual(family.data.tokens.find(item => item.membershipId === ana), { membershipId: ana, used: true });
+      assert.match(family.data.tokens.find(item => item.membershipId === bia).token, /^\d{8}$/);
       const answers = await Promise.all([
         check(g, host, ana, bruno, brunoCode),
         check(g, host, ana, bruno, brunoCode),
@@ -123,6 +129,21 @@ test('group Marmelada checks one announced pair using the announced recipient’
       assert.deepEqual(answers.map(x => x.status).sort(), [200, 422]);
       assert.deepEqual(answers.find(x => x.status === 200).data, { matches: true });
       assert.equal((await issue(g, b, bruno)).status, 409);
+    });
+
+    await t.test('batch requests only return the caller’s own group and cannot partially issue unauthorized lists', async () => {
+      const [, otherAna, otherBruno, otherBia] = other.ids;
+      assert.equal((await list(other, null, [otherAna])).status, 401);
+      assert.equal((await list(other, a, [])).status, 400);
+      assert.equal((await list(waiting, a, [waiting.ids[1]])).status, 404);
+      assert.equal((await list(other, a, [otherBia, bia])).status, 404);
+      assert.equal((await list(other, a, [otherBia, otherBruno])).status, 404);
+      assert.equal((await query('SELECT 1 FROM as_marmelada_tokens WHERE group_id=$1 AND giver_id=$2', [other.id, otherBia])).rows.length, 0);
+      const batch = await list(other, a, [otherBia, otherAna]);
+      assert.equal(batch.status, 200);
+      assert.deepEqual(batch.data.tokens.map(item => item.membershipId).sort(), [otherAna, otherBia].sort());
+      for (const item of batch.data.tokens) assert.deepEqual((await issue(other, a, item.membershipId)).data, { token: item.token });
+      assert.notEqual(batch.data.tokens[0].token, batch.data.tokens[1].token);
     });
 
     await t.test('failed guesses pause checks without changing or consuming the token', async () => {
