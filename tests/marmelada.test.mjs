@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderAdmin } from '../prototype/admin.js';
 import { renderGroups } from '../prototype/groups.js';
-import { renderMarmelada, renderMarmeladaResult, renderMarmeladaTokenDialog, renderMarmeladaTokenList, showMarmeladaResult, syncGroupMarmeladaForm } from '../prototype/marmelada.js';
+import { renderMarmelada, renderMarmeladaResult, renderMarmeladaTokenDialog, renderMarmeladaTokenList, setupMarmeladaTokenHelp, showMarmeladaResult, syncGroupMarmeladaForm } from '../prototype/marmelada.js';
 
 test('Marmelada stays behind the administrative renderer and escapes selectable participant names', () => {
   const data = { group: { id: 'group', name: '<script>secret</script>' }, participants: [{ id: 'giver', name: '<img src=x onerror=alert(1)>' }] };
@@ -71,23 +71,52 @@ test('presentation displays only the announced pair and treats only a positive s
   assert(!correct.includes('É MARMELADA!'));
 });
 
-test('the group header shows a personal token or opens a single list for the holder and dependents', () => {
-  const user = { id: 'guardian' }, group = { id: 'group', name: 'Natal' };
+test('the group header explains the token using the group and organizer and supports dependents', () => {
+  const user = { id: 'guardian' }, group = { id: 'group', name: 'Natal & Amigos', organizerId: 'owner', organizerName: 'Helena Almeida' };
   const holder = { id: 'member-1', userId: user.id, name: 'ANA BEZERRA', status: 'accepted' };
   const child = { id: 'member-2', guardianId: user.id, name: 'BIA BEZERRA', isDependent: true, status: 'accepted' };
   const state = { production: true, drawn: true, role: 'member', user, group, participants: [holder] };
   const solo = renderGroups('group', state);
   assert.match(solo, /class="group-detail-status"[\s\S]*Sorteio realizado[\s\S]*data-marmelada-tokens="inline"/);
   assert.doesNotMatch(solo, /Ver tokens da troca/);
+  assert.match(solo, /role="tooltip" hidden>Se alguém anunciar que tirou você, informe este token a <strong>Helena Almeida<\/strong> durante a troca do grupo <strong>Natal &amp; Amigos/);
   const family = renderGroups('group', { ...state, participants: [child, holder] });
   assert.match(family, /class="group-detail-status"[\s\S]*Sorteio realizado[\s\S]*Ver tokens da troca/);
   assert.doesNotMatch(family, /data-marmelada-tokens="inline"/);
+  assert.match(family, /informe o token da pessoa anunciada a <strong>Helena Almeida/);
+  const ownerView = renderGroups('group', { ...state, role: 'organizer', group: { ...group, organizerId: user.id } });
+  assert.match(ownerView, /durante a troca do grupo <strong>Natal &amp; Amigos<\/strong>, use este token no <strong>É Marmelada\?/);
   const delegatedSolo = renderGroups('group', { ...state, viewAs: {} });
   assert.match(delegatedSolo, /Sorteio realizado[\s\S]*Meu token da troca[\s\S]*data-marmelada-tokens="inline"/);
   assert.match(renderGroups('group', { ...state, viewAs: {}, participants: [child, holder] }), /Ver tokens da troca/);
   assert.match(renderMarmeladaTokenDialog(), /data-marmelada-tokens="list"/);
   const html = renderMarmeladaTokenList([child, holder], new Map([[holder.id, { token: '01234567' }], [child.id, { token: '12345678' }]]));
   assert.match(html, /Ana Bezerra[\s\S]*0123 4567[\s\S]*Bia Bezerra[\s\S]*1234 5678/);
+});
+
+test('the token tooltip responds to hover, keyboard focus, Escape and touch', () => {
+  const events = {}, buttonEvents = {}, attributes = {};
+  const tooltip = { hidden: true };
+  let keyboardFocus = false;
+  const button = { setAttribute: (key, value) => { attributes[key] = value; },
+    addEventListener: (type, handler) => { buttonEvents[type] = handler; },
+    matches: () => keyboardFocus, focus() {} };
+  setupMarmeladaTokenHelp({ querySelector: selector => selector === 'button' ? button : tooltip,
+    addEventListener: (type, handler) => { events[type] = handler; } });
+  events.pointerenter({ pointerType: 'mouse' });
+  assert.equal(tooltip.hidden, false);
+  events.pointerleave({ pointerType: 'mouse' });
+  assert.equal(tooltip.hidden, true);
+  keyboardFocus = true;
+  buttonEvents.focus();
+  assert.equal(attributes['aria-expanded'], 'true');
+  buttonEvents.keydown({ key: 'Escape' });
+  assert.equal(tooltip.hidden, true);
+  keyboardFocus = false;
+  buttonEvents.click({ pointerType: 'touch' });
+  assert.equal(tooltip.hidden, false);
+  buttonEvents.click({ pointerType: 'touch' });
+  assert.equal(attributes['aria-expanded'], 'false');
 });
 
 function presentationFixture({ fullscreenSupported = true } = {}) {

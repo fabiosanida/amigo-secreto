@@ -106,6 +106,33 @@ export function ownMarmeladaParticipants(state) {
     && (person.userId === userId || (person.isDependent && person.guardianId === userId)));
 }
 
+export function setupMarmeladaTokenHelp(help) {
+  if (!help) return;
+  const button = help.querySelector('button'), tooltip = help.querySelector('[role="tooltip"]');
+  const setOpen = open => {
+    tooltip.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  };
+  help.addEventListener('pointerenter', event => {
+    if (event.pointerType === 'mouse') setOpen(true);
+  });
+  help.addEventListener('pointerleave', event => {
+    if (event.pointerType === 'mouse' && !button.matches(':focus-visible')) setOpen(false);
+  });
+  button.addEventListener('focus', () => {
+    if (button.matches(':focus-visible')) setOpen(true);
+  });
+  button.addEventListener('blur', () => setOpen(false));
+  button.addEventListener('click', event => {
+    const open = event.pointerType !== 'touch' || tooltip.hidden;
+    button.focus({ preventScroll: true });
+    setOpen(open);
+  });
+  button.addEventListener('keydown', event => {
+    if (event.key === 'Escape') setOpen(false);
+  });
+}
+
 export function renderMarmeladaTokenValue(item) {
   const { token } = item;
   return `<strong class="marmelada-token-code">${escape(token.slice(0, 4))} ${escape(token.slice(4))}</strong>`;

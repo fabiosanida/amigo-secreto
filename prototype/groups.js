@@ -135,12 +135,24 @@ function renderOwnMarmeladaToken(state) {
   if (!state.production) return '';
   const people = ownMarmeladaParticipants(state);
   if (!people.length) return '';
-  if (people.some(person => person.isDependent)) {
-    return `<button type="button" class="btn btn-secondary group-token-trigger" data-action="my-marmelada-token" aria-haspopup="dialog">${icon('lock', 16)} Ver tokens da troca</button>`;
-  }
+  const hasDependents = people.some(person => person.isDependent);
+  const isOrganizer = state.group?.organizerId === state.user.id;
+  const organizer = state.group?.organizerName || state.participants.find(person => person.isOrganizer)?.name || 'quem criou o grupo';
+  const eventName = `<strong>${escape(state.group?.name)}</strong>`;
+  const person = hasDependents ? 'você ou um dependente' : 'você';
+  const code = hasDependents ? 'o token da pessoa anunciada' : 'este token';
+  const help = isOrganizer
+    ? `Se alguém anunciar que tirou ${person} durante a troca do grupo ${eventName}, use ${code} no <strong>É Marmelada?</strong> para conferir se essa pessoa realmente tirou o nome que anunciou.`
+    : `Se alguém anunciar que tirou ${person}, informe ${code} a <strong>${escape(organizer)}</strong> durante a troca do grupo ${eventName}. O <strong>É Marmelada?</strong> confere se quem fez o anúncio realmente tirou aquele nome.`;
   return `<div class="group-token-card">
-    <span class="group-token-caption">${icon('lock', 14)} Meu token da troca</span>
-    <div data-marmelada-tokens="inline" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>
+    <div class="group-token-content">${hasDependents
+      ? `<button type="button" class="btn btn-secondary group-token-trigger" data-action="my-marmelada-token" aria-haspopup="dialog">${icon('lock', 16)} Ver tokens da troca</button>`
+      : `<span class="group-token-caption">${icon('lock', 14)} Meu token da troca</span>
+        <div data-marmelada-tokens="inline" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>`}</div>
+    <div class="group-token-help" data-token-help>
+      <button type="button" class="group-token-info" aria-label="Para que serve o token da troca?" aria-describedby="group-token-tooltip" aria-expanded="false">${icon('info', 19)}</button>
+      <div id="group-token-tooltip" class="group-token-tooltip" role="tooltip" hidden>${help}</div>
+    </div>
   </div>`;
 }
 

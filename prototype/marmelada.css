@@ -16,15 +16,73 @@
   gap: 10px;
 }
 .group-token-card {
-  min-width: 152px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 198px;
   padding: 9px 12px;
   border: 1px solid #d7e2ce;
   border-radius: 12px;
   background: #f0f4eb;
   text-align: center;
 }
+.group-token-content { flex: 1; min-width: 0; }
 .group-token-caption { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 3px; font-size: 12px; font-weight: 600; }
 .group-token-trigger.btn { min-height: 40px; padding: 7px 12px; font-size: 12px; }
+.group-token-help { display: flex; align-self: stretch; align-items: center; }
+.group-token-info {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #cfdbc6;
+  border-radius: 50%;
+  background: #e4ebdd;
+  color: #385646;
+  cursor: pointer;
+}
+.group-token-info:hover, .group-token-info[aria-expanded="true"] { background: #d9e5d0; }
+.group-token-info:focus-visible { outline: 2px solid #5c7653; outline-offset: 2px; }
+.group-token-tooltip {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 9px);
+  right: 0;
+  width: min(302px, calc(100vw - 42px));
+  padding: 13px 15px;
+  border: 1px solid #456155;
+  border-radius: 12px;
+  background: var(--ink);
+  box-shadow: 0 10px 24px #193a3030;
+  color: #fffdf5;
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.group-token-tooltip strong { color: #ffeebd; }
+.group-token-tooltip::before {
+  position: absolute;
+  top: -20px;
+  right: 0;
+  left: 0;
+  height: 20px;
+  content: '';
+}
+.group-token-tooltip::after {
+  position: absolute;
+  top: -6px;
+  right: 24px;
+  width: 10px;
+  height: 10px;
+  border: solid #456155;
+  border-width: 1px 0 0 1px;
+  background: var(--ink);
+  transform: rotate(45deg);
+  content: '';
+}
 .group-marmelada-promo {
   margin-top: 20px;
   padding: 16px;
@@ -138,6 +196,8 @@
 .marmelada-token-retry { display: block; margin: 5px auto 0; }
 @media (max-width: 680px) {
   .group-detail-title > .group-detail-status { align-items: flex-start; margin-top: 16px; }
+  .group-token-tooltip { right: auto; left: 0; }
+  .group-token-tooltip::after { display: none; }
 }
 @media (max-width: 480px) {
   .group-marmelada-page .admin-title-row > .btn { align-self: flex-start; }

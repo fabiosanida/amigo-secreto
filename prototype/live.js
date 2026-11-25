@@ -7,7 +7,7 @@ import { renderGroups, GROUP_ROUTES } from './groups.js';
 import { renderDependents, DEPENDENT_ROUTES } from './dependents.js';
 import { WISHLIST_ROUTES, renderWishlists, renderRecipientWishlist, canBrowseGroupWishlists, wishlistDirty, validateWishlistItem, emptyWishlistItem, setupWishlistFields, showWishlistDiscard } from './wishlist.js';
 import { renderAdmin, renderAdminDeletePreview, ADMIN_ROUTES } from './admin.js';
-import { ownMarmeladaParticipants, renderMarmeladaTokenDialog, renderMarmeladaTokenList, renderMarmeladaTokenValue, setupGroupMarmeladaForm, showMarmeladaResult, syncGroupMarmeladaForm } from './marmelada.js';
+import { ownMarmeladaParticipants, renderMarmeladaTokenDialog, renderMarmeladaTokenList, renderMarmeladaTokenValue, setupGroupMarmeladaForm, setupMarmeladaTokenHelp, showMarmeladaResult, syncGroupMarmeladaForm } from './marmelada.js';
 import { cancelPasskey, renderPasskeyOffer, renderViewAsBanner, renderViewAsPicker, renderViewAsResults, supportsPasskeys, usePasskey } from './account-tools.js';
 import { openProfileEditor, setupPhotoInputs, getSignupAvatar, resetSignupAvatar } from './profile.js';
 
@@ -131,6 +131,8 @@ function render() {
   setupInviteFields(document.querySelector('#app'));
   setupGroupFields(document.querySelector('#app'));
   if (route === 'group-marmelada') setupGroupMarmeladaForm(document.querySelector('[data-form="group-marmelada-check"]'));
+  const tokenHelp = document.querySelector('[data-token-help]');
+  if (tokenHelp) setupMarmeladaTokenHelp(tokenHelp);
   const inlineToken = document.querySelector('[data-marmelada-tokens="inline"]');
   if (inlineToken) void loadOwnMarmeladaTokens(inlineToken);
   if (route === 'wishlist') setupWishlistFields(document.querySelector('#app'), state.wishlist);
