@@ -23,7 +23,7 @@ test('the creator’s delegated view allows verification after selecting two peo
   assert.doesNotMatch(renderGroups('group', { ...state, user: { id: 'member' }, role: 'member' }), /group-marmelada-promo/);
   assert.doesNotMatch(renderGroups('group', { ...state, drawn: false }), /group-marmelada-promo/);
   const html = renderGroups('group-marmelada', state);
-  assert.match(html, /Esta conferência também consome o token/);
+  assert.match(html, /O mesmo token pode ser usado em outras conferências/);
   assert.match(html, /type="radio" name="giverId" value="giver" data-person-name="Ana Bezerra"/);
   assert.match(html, /type="radio" name="receiverId" value="receiver" data-person-name="Gustavo Costa"/);
   assert.match(html, /<img src="data:image\/webp;base64,VGVzdGU="/);
@@ -86,8 +86,8 @@ test('the group header shows a personal token or opens a single list for the hol
   assert.match(delegatedSolo, /Sorteio realizado[\s\S]*Meu token da troca[\s\S]*data-marmelada-tokens="inline"/);
   assert.match(renderGroups('group', { ...state, viewAs: {}, participants: [child, holder] }), /Ver tokens da troca/);
   assert.match(renderMarmeladaTokenDialog(), /data-marmelada-tokens="list"/);
-  const html = renderMarmeladaTokenList([child, holder], new Map([[holder.id, { token: '01234567' }], [child.id, { used: true }]]));
-  assert.match(html, /Ana Bezerra[\s\S]*0123 4567[\s\S]*Bia Bezerra[\s\S]*Token já usado/);
+  const html = renderMarmeladaTokenList([child, holder], new Map([[holder.id, { token: '01234567' }], [child.id, { token: '12345678' }]]));
+  assert.match(html, /Ana Bezerra[\s\S]*0123 4567[\s\S]*Bia Bezerra[\s\S]*1234 5678/);
 });
 
 function presentationFixture({ fullscreenSupported = true } = {}) {

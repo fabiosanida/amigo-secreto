@@ -24,7 +24,7 @@ function participantTags(name, people) {
   </label>`).join('')}</div>`;
 }
 
-export function renderGroupMarmelada({ group, participants } = {}, { delegated = false } = {}) {
+export function renderGroupMarmelada({ group, participants } = {}) {
   if (!group) return '';
   const groupRoute = `group?${new URLSearchParams({ id: group.id })}`;
   const people = participants.map(person => ({ ...person, name: displayName(memberName(person)) }))
@@ -53,7 +53,7 @@ export function renderGroupMarmelada({ group, participants } = {}, { delegated =
           </div>
           <div class="marmelada-check-note" id="group-marmelada-help">${icon('info', 17)}
             <p>Peça à pessoa da etapa 2 o código de oito dígitos que aparece abaixo de <strong>Sorteio realizado</strong> na página do grupo.
-              ${delegated ? '<strong>Esta conferência também consome o token.</strong>' : 'Cada token vale para uma conferência.'}</p>
+              O mesmo token pode ser usado em outras conferências.</p>
           </div>
           <button type="submit" class="btn btn-primary btn-block marmelada-check-button" disabled>${icon('sparkles', 19)} Conferir</button>
         </form>
@@ -107,7 +107,6 @@ export function ownMarmeladaParticipants(state) {
 }
 
 export function renderMarmeladaTokenValue(item) {
-  if (item.used) return '<span class="marmelada-token-status">Token já usado</span>';
   const { token } = item;
   return `<strong class="marmelada-token-code">${escape(token.slice(0, 4))} ${escape(token.slice(4))}</strong>`;
 }
@@ -128,7 +127,7 @@ export function renderMarmeladaTokenDialog() {
   return `<section class="account-tool-panel">
     <span class="auth-form-symbol">${icon('lock', 23)}</span>
     <h2 id="marmelada-token-title">Meus tokens da troca</h2>
-    <p>Cada código vale para uma conferência. Na hora da troca, informe o token da pessoa anunciada como destinatária do presente.</p>
+    <p>Os códigos são fixos e reutilizáveis. Na hora da troca, informe o token da pessoa anunciada como destinatária do presente.</p>
     <div data-marmelada-tokens="list" aria-live="polite"><span class="marmelada-token-status">Carregando…</span></div>
     <div class="account-tool-actions">
       <button type="button" class="btn btn-secondary" data-action="close-dialog">Fechar</button>

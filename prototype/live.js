@@ -1145,7 +1145,7 @@ async function loadOwnMarmeladaTokens(output) {
     const tokens = new Map((result.tokens || []).map(item => [item.membershipId, item]));
     if (!people.every(person => {
       const item = tokens.get(person.id);
-      return item?.used === true || (typeof item?.token === 'string' && /^\d{8}$/.test(item.token));
+      return typeof item?.token === 'string' && /^\d{8}$/.test(item.token);
     })) throw new ApiError('INVALID_RESPONSE', 'Não foi possível exibir o token.');
     output.innerHTML = dialog
       ? renderMarmeladaTokenList(people, tokens)

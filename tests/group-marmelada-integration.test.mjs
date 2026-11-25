@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import handler from '../api/index.js';
-import { hashCode, hashToken, newToken } from '../lib/auth.js';
+import { hashCode, hashToken, newToken, sealSecret } from '../lib/auth.js';
 import { getPool, query, transaction } from '../lib/db.js';
 
 test('group Marmelada checks one announced pair using the announced recipient’s private token', {
@@ -94,7 +94,7 @@ test('group Marmelada checks one announced pair using the announced recipient’
       }
     });
 
-    await t.test('only the announced recipient’s token works and either verdict consumes it', async () => {
+    await t.test('only the announced recipient’s token works and both verdicts allow repeat checks', async () => {
       const issued = await Promise.all([issue(g, a, ana), issue(g, a, ana)]);
       const code = issued[0].data.token;
       for (const response of issued) {
@@ -104,6 +104,10 @@ test('group Marmelada checks one announced pair using the announced recipient’
       }
       const otherCode = (await issue(other, a, other.ids[1])).data.token;
       const brunoCode = (await issue(g, b, bruno)).data.token;
+      const tokenRows = () => query('SELECT * FROM as_marmelada_tokens WHERE group_id=$1 ORDER BY giver_id', [g.id]);
+      const beforeChecks = (await tokenRows()).rows;
+      const rateLimitCount = () => query('SELECT count(*) FROM as_rate_limits');
+      const beforeRateLimits = (await rateLimitCount()).rows;
       assert.notEqual(otherCode, code);
       assert.equal((await check(g, a, ana, bruno, brunoCode)).status, 404);
       assert.equal((await check(g, outsider, ana, bruno, brunoCode)).status, 404);
@@ -115,20 +119,23 @@ test('group Marmelada checks one announced pair using the announced recipient’
       const wrong = await check(g, host, bruno, ana, code);
       assert.equal(wrong.status, 200);
       assert.deepEqual(wrong.data, { matches: false });
-      assert.equal((await check(g, host, hostSlot, ana, code)).status, 422);
-      assert.equal((await issue(g, a, ana)).status, 409);
-      const family = await list(g, a, [ana, bia]);
-      assert.equal(family.status, 200);
-      assert.match(family.cache, /no-store/);
-      assert.deepEqual(family.data.tokens.find(item => item.membershipId === ana), { membershipId: ana, used: true });
-      assert.match(family.data.tokens.find(item => item.membershipId === bia).token, /^\d{8}$/);
+      const confirmed = await check(g, host, hostSlot, ana, code);
+      assert.equal(confirmed.status, 200);
+      assert.deepEqual(confirmed.data, { matches: true });
       const answers = await Promise.all([
         check(g, host, ana, bruno, brunoCode),
         check(g, host, ana, bruno, brunoCode),
       ]);
-      assert.deepEqual(answers.map(x => x.status).sort(), [200, 422]);
-      assert.deepEqual(answers.find(x => x.status === 200).data, { matches: true });
-      assert.equal((await issue(g, b, bruno)).status, 409);
+      assert(answers.every(response => response.status === 200 && response.data.matches === true));
+      assert.deepEqual((await tokenRows()).rows, beforeChecks);
+      assert.deepEqual((await rateLimitCount()).rows, beforeRateLimits);
+      assert.deepEqual((await issue(g, a, ana)).data, { token: code });
+      const family = await list(g, a, [ana, bia]);
+      assert.equal(family.status, 200);
+      assert.match(family.cache, /no-store/);
+      assert.deepEqual(family.data.tokens.find(item => item.membershipId === ana), { membershipId: ana, token: code });
+      assert.match(family.data.tokens.find(item => item.membershipId === bia).token, /^\d{8}$/);
+      assert.deepEqual((await issue(g, b, bruno)).data, { token: brunoCode });
     });
 
     await t.test('batch requests only return the caller’s own group and cannot partially issue unauthorized lists', async () => {
@@ -150,17 +157,16 @@ test('group Marmelada checks one announced pair using the announced recipient’
       const code = (await issue(g, host, hostSlot)).data.token;
       const invalid = code === '00000000' ? '00000001' : '00000000';
       for (let i = 0; i < 5; i++) assert.equal((await check(g, host, bia, hostSlot, invalid)).status, 422);
-      assert.equal((await check(g, host, bia, hostSlot, code)).status, 422);
+      assert.equal((await check(g, host, bia, hostSlot, code)).status, 429);
+      assert.equal((await check(g, a, bia, hostSlot, code)).status, 404);
       assert.deepEqual((await issue(g, host, hostSlot)).data, { token: code });
-      await query("UPDATE as_marmelada_tokens SET attempts_reset_at=now()-interval '1 hour' WHERE group_id=$1 AND giver_id=$2", [g.id, hostSlot]);
-      const verified = await check(g, host, bia, hostSlot, code);
-      assert.equal(verified.status, 200);
-      assert.deepEqual(verified.data, { matches: true });
+      const row = (await query('SELECT used_at, failed_attempts, attempts_reset_at FROM as_marmelada_tokens WHERE group_id=$1 AND giver_id=$2', [g.id, hostSlot])).rows[0];
+      assert.deepEqual(row, { used_at: null, failed_attempts: 0, attempts_reset_at: null });
       assert.equal((await check(g, host, bia, hostSlot, '12')).status, 400);
       assert.equal((await check(waiting, host, waiting.ids[1], waiting.ids[2], code)).status, 404);
     });
 
-    await t.test('an unused legacy token is replaced once and a used legacy token stays used', async () => {
+    await t.test('old one-time flags do not hide recoverable codes or prevent reuse', async () => {
       const legacyOpen = '91710001', legacyUsed = '91710002';
       await query(`INSERT INTO as_marmelada_tokens(group_id,giver_id,token_hash,expires_at,used_at)
         VALUES($1,$2,$3,now()-interval '1 day',NULL),($1,$4,$5,now()-interval '1 day',now()-interval '2 days')`,
@@ -169,7 +175,10 @@ test('group Marmelada checks one announced pair using the announced recipient’
       const first = await issue(other, b, other.ids[2]);
       assert.equal(first.status, 201);
       assert.deepEqual((await issue(other, b, other.ids[2])).data, first.data);
-      assert.equal((await issue(other, host, other.ids[0])).status, 409);
+      await query(`UPDATE as_marmelada_tokens SET token_ciphertext=$3, expires_at='infinity', failed_attempts=5, attempts_reset_at=now()+interval '1 hour'
+        WHERE group_id=$1 AND giver_id=$2`, [other.id, other.ids[0], sealSecret(legacyUsed)]);
+      assert.deepEqual((await issue(other, host, other.ids[0])).data, { token: legacyUsed });
+      assert.deepEqual((await check(other, host, other.ids[3], other.ids[0], legacyUsed)).data, { matches: true });
       assert.equal((await check(other, host, other.ids[1], other.ids[2], first.data.token)).status, 200);
     });
   } finally {

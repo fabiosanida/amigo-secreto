@@ -150,11 +150,17 @@ test('private administration and creator deletion enforce server identity, full 
       assert.equal((await check(asOwner, claim, member.cookie)).status, 403);
       const invalidToken = claim.token === '00000000' ? '00000001' : '00000000';
       assert.equal((await check(asOwner, { ...claim, token: invalidToken })).status, 422);
-      const verdict = await check(asOwner);
-      assert.equal(verdict.status, 200);
-      assert.deepEqual(verdict.data, { matches: true });
-      assert.equal((await check(asOwner)).status, 422);
-      assert.deepEqual((await readTokens([receiverId])).data, { tokens: [{ membershipId: receiverId, used: true }] });
+      const audits = [], savedInfo = console.info;
+      console.info = (...args) => audits.push(args);
+      try {
+        for (let i = 0; i < 2; i++) {
+          const verdict = await check(asOwner);
+          assert.equal(verdict.status, 200);
+          assert.deepEqual(verdict.data, { matches: true });
+        }
+      } finally { console.info = savedInfo; }
+      assert.deepEqual(audits, []);
+      assert.deepEqual((await readTokens([receiverId])).data, { tokens: [{ membershipId: receiverId, token: ownToken.data.token }] });
       const pendingView = await api(`${asOwner}/groups/${pending.id}`, { cookie: admin.cookie });
       assert.equal(pendingView.status, 200);
       const delivery = (await query('SELECT state,attempts FROM as_outbox WHERE group_id=$1', [pending.id])).rows[0];

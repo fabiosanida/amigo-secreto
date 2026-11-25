@@ -144,7 +144,8 @@ export default async function handler(req, res) {
         const target = await viewAsUser(user, parts[2], { includeAvatar: !scoped.length || (scoped[0] === 'profile' && scoped.length === 1) });
         if (method === 'GET' && !scoped.length) return send(res, 200, { user: target });
         const reply = (status, data) => {
-          if (method === 'POST') {
+          const marmeladaCheck = scoped[0] === 'groups' && scoped[2] === 'marmelada' && scoped[3] === 'check';
+          if (method === 'POST' && !marmeladaCheck) {
             const family = scoped[0];
             // Keep the actual actor and target in the audit, without storing values or invite links.
             console.info('view_as_change', { actorId: user.id, targetId: target.id, family,
